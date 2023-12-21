@@ -11,13 +11,21 @@ end
 local guardConstructors = true
 local guardFactories = true
 
-local isConstructor, isFactory = {}, {}
+local isConstructor = {}
+local isFactory = {}
+local canAssist = {}
+
 for unitDefID, unitDef in pairs(UnitDefs) do
   if unitDef.isMobileBuilder then
     isConstructor[unitDefID] = true
   end
+
   if unitDef.isFactory then
     isFactory[unitDefID] = true
+  end
+
+  if unitDef.canAssist then
+    canAssist[unitDefID] = true
   end
 end
 
@@ -31,9 +39,18 @@ function widget:DefaultCommand(targetType, targetID, engineCmd)
       return
     end
 
-    local unitDefID = Spring.GetUnitDefID(targetID)
-    if (isConstructor[unitDefID] and guardConstructors) or (isFactory[unitDefID] and guardFactories)
-    then
+    -- todo: rewrite logic to use more early returns
+    local selectedUnits = Spring.GetSelectedUnits()
+    for i = 1, #selectedUnits do
+      local sourceUnitDefID = Spring.GetUnitDefID(selectedUnits[i])
+
+      if not canAssist(sourceUnitDefID) then
+        return
+      end
+    end
+
+    local targetUnitDefID = Spring.GetUnitDefID(targetID)
+    if (isConstructor[targetUnitDefID] and guardConstructors) or (isFactory[targetUnitDefID] and guardFactories) then
       return CMD.GUARD
     end
   end
