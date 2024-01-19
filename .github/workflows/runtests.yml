@@ -1,0 +1,17 @@
+name: runtests
+run-name: run name
+on: [push, workflow_dispatch]
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: docker-compose -f tools/headless_testing/docker-compose.yml up
+
+      - name: Test Summary
+        uses: test-summary/action@v2
+        with:
+          paths: "tools/headless_testing/testlog/results.tap"
+        if: always()
