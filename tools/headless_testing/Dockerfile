@@ -9,7 +9,7 @@ WORKDIR /bar
 
 RUN mkdir -p maps games engine
 
-COPY download-engine.sh /bar/
+COPY --chmod=0755 download-engine.sh /bar/
 RUN ./download-engine.sh
 
 RUN /bar/engine/*/pr-downloader --filesystem-writepath "/bar" download-map "Full Metal Plate 1.5"
