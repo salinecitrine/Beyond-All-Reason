@@ -5,9 +5,10 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Build Docker Image
+      - name: Run Tests
         run: docker-compose -f tools/headless_testing/docker-compose.yml up
 
       - name: Test Summary
