@@ -24,8 +24,6 @@ local noColorOutput = false
 local quitWhenDone = false
 local gameStartTestPatterns = nil
 local testResultsFilePath = nil
-local testLogFilePath = nil
-local testLogFile = nil
 local testResultsFile = nil
 
 -- utils
@@ -39,9 +37,6 @@ local function log(level, str, ...)
 		LOG.NOTICE,
 		str
 	)
-	if testLogFile ~= nil then
-		testLogFile:write(str .. "\n")
-	end
 end
 
 local function logTAPResult(testResult)
@@ -241,10 +236,6 @@ local function startTests(patterns)
 		return
 	end
 
-	if testLogFilePath ~= nil then
-		testLogFile = io.open(testLogFilePath, "w")
-	end
-
 	if testResultsFilePath ~= nil then
 		testResultsFile = io.open(testResultsFilePath, "w")
 		testResultsFile:write("TAP version 14\n")
@@ -304,10 +295,6 @@ local function finishTest(result)
 		testRunState.runningTests = false
 		if SHOW_ALL_RESULTS then
 			displayTestResults(testRunState.results)
-		end
-
-		if testLogFile ~= nil and io.type(testLogFile) == "file" then
-			io.close(testLogFile)
 		end
 
 		if testResultsFile ~= nil and io.type(testResultsFile) == "file" then
@@ -877,9 +864,6 @@ function widget:Initialize()
 			noColorOutput = true
 			quitWhenDone = true
 			gameStartTestPatterns = splitPhrases(optLine)
-			--testLogFilePath = "testlog/" .. os.date("%Y%m%d%H%M%S") .. ".log"
-			--testResultsFilePath = "testlog/" .. os.date("%Y%m%d%H%M%S") .. ".tap"
-			testLogFilePath = "testlog/testlog.txt"
 			testResultsFilePath = "testlog/results.tap"
 		end,
 		nil,
