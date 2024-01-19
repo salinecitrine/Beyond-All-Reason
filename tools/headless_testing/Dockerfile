@@ -17,4 +17,4 @@ RUN /bar/engine/*/pr-downloader --filesystem-writepath "/bar" download-map "Full
 COPY ./startscript.txt /bar/
 COPY --chmod=0755 ./start.sh /bar/
 
-ENTRYPOINT /bar/start.sh
+ENTRYPOINT /bar/start.sh /bar
