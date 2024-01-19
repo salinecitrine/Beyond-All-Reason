@@ -8,7 +8,4 @@ destination=$(echo $json | jq -r '.setups[] | select(.package.id == "manual-linu
 
 mkdir -p "$destination"
 
-#curl -L $url | 7z x -aoa -si -ttar -o$destination
-curl -L $url -o temp.7z && 7z x temp.7z -o"$destination"
-rm -f temp.7z
-ls "$destination"
+curl -L $url -o temp.7z && 7z x temp.7z -o"$destination" && rm -f temp.7z
