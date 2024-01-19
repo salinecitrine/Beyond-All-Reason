@@ -40,6 +40,9 @@ local function log(level, str, ...)
 end
 
 local function logTAPResult(testResult)
+	if testResultsFile == nil then
+		return
+	end
 	testResultsFile:write(
 		string.format(
 			"%s %d - %s%s\n",
