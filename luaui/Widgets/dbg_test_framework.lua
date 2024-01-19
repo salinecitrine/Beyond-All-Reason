@@ -23,8 +23,10 @@ local SHOW_ALL_RESULTS = true
 local noColorOutput = false
 local quitWhenDone = false
 local gameStartTestPatterns = nil
-local logFilePath = nil
-local logFile = nil
+local testResultsFilePath = nil
+local testLogFilePath = nil
+local testLogFile = nil
+local testResultsFile = nil
 
 -- utils
 -- =====
@@ -37,8 +39,32 @@ local function log(level, str, ...)
 		LOG.NOTICE,
 		str
 	)
-	if logFile ~= nil then
-		logFile:write(str .. "\n")
+	if testLogFile ~= nil then
+		testLogFile:write(str .. "\n")
+	end
+end
+
+local function logTAPResult(testResult)
+	testResultsFile:write(
+		string.format(
+			"%s %d - %s%s\n",
+			(testResult.result == TEST_RESULT.PASS) and "ok" or "not ok",
+			testResult.index,
+			testResult.label,
+			(testResult.result == TEST_RESULT.SKIP) and " # SKIP" or ""
+		)
+	)
+
+	if testResult.result == TEST_RESULT.FAIL then
+		testResultsFile:write("  ---\n")
+		testResultsFile:write("  message: " .. testResult.error .. "\n")
+		testResultsFile:write("  severity: fail\n")
+		testResultsFile:write("  ...\n")
+	elseif testResult.result == TEST_RESULT.ERROR then
+		testResultsFile:write("  ---\n")
+		testResultsFile:write("  message: " .. testResult.error .. "\n")
+		testResultsFile:write("  severity: error\n")
+		testResultsFile:write("  ...\n")
 	end
 end
 
@@ -215,8 +241,13 @@ local function startTests(patterns)
 		return
 	end
 
-	if logFilePath ~= nil then
-		logFile = io.open(logFilePath, "w")
+	if testLogFilePath ~= nil then
+		testLogFile = io.open(testLogFilePath, "w")
+	end
+
+	if testResultsFilePath ~= nil then
+		testResultsFile = io.open(testResultsFilePath, "w")
+		testResultsFile:write("TAP version 14\n")
 	end
 
 	resetState()
@@ -247,14 +278,16 @@ local function finishTest(result)
 		control.remove()
 	end
 
+	result.index = result.index or testRunState.index
 	result.label = result.label or activeTestState.label
 	if activeTestState and activeTestState.startFrame and result.frames == nil then
 		result.frames = Spring.GetGameFrame() - activeTestState.startFrame
 	end
-
 	result.milliseconds = getTestTime()
 
 	log(LOG.NOTICE, formatTestResult(result, noColorOutput))
+
+	logTAPResult(result)
 
 	testRunState.results[#(testRunState.results) + 1] = result
 
@@ -273,8 +306,13 @@ local function finishTest(result)
 			displayTestResults(testRunState.results)
 		end
 
-		if logFile ~= nil and io.type(logFile) == "file" then
-			io.close(logFile)
+		if testLogFile ~= nil and io.type(testLogFile) == "file" then
+			io.close(testLogFile)
+		end
+
+		if testResultsFile ~= nil and io.type(testResultsFile) == "file" then
+			testResultsFile:write("1.." .. #(testRunState.files) .. "\n")
+			io.close(testResultsFile)
 		end
 
 		if quitWhenDone then
@@ -839,7 +877,10 @@ function widget:Initialize()
 			noColorOutput = true
 			quitWhenDone = true
 			gameStartTestPatterns = splitPhrases(optLine)
-			logFilePath = "testlog.txt"
+			--testLogFilePath = "testlog/" .. os.date("%Y%m%d%H%M%S") .. ".log"
+			--testResultsFilePath = "testlog/" .. os.date("%Y%m%d%H%M%S") .. ".tap"
+			testLogFilePath = "testlog/testlog.txt"
+			testResultsFilePath = "testlog/results.tap"
 		end,
 		nil,
 		"t"

@@ -2,7 +2,6 @@ FROM ubuntu:devel
 
 WORKDIR /bar
 
-# Install prerequisites for pr-downloader
 RUN apt-get update && \
     apt-get install -y curl jq 7zip
 

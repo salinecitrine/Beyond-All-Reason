@@ -8,6 +8,8 @@ services:
     volumes:
       - ../..:/bar/games/BAR.sdd:ro
       - ../../../../LuaUI/Widgets:/bar/LuaUI/Widgets:ro
+      - ./testlog:/bar/testlog:rw
       - cache:/bar/cache
+
 volumes:
   cache:
