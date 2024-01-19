@@ -52,12 +52,16 @@ local function logTAPResult(testResult)
 
 	if testResult.result == TEST_RESULT.FAIL then
 		testResultsFile:write("  ---\n")
-		testResultsFile:write("  message: " .. testResult.error .. "\n")
+		if testResult.error then
+			testResultsFile:write("  message: " .. testResult.error .. "\n")
+		end
 		testResultsFile:write("  severity: fail\n")
 		testResultsFile:write("  ...\n")
 	elseif testResult.result == TEST_RESULT.ERROR then
 		testResultsFile:write("  ---\n")
-		testResultsFile:write("  message: " .. testResult.error .. "\n")
+		if testResult.error then
+			testResultsFile:write("  message: " .. testResult.error .. "\n")
+		end
 		testResultsFile:write("  severity: error\n")
 		testResultsFile:write("  ...\n")
 	end

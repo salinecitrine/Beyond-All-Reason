@@ -1,4 +1,4 @@
 #!/bin/bash
 
-rm -rf /bar/LuaUI/Config
-/bar/engine/*/spring-headless --isolation --write-dir /bar /bar/startscript.txt
+rm -rf ./LuaUI/Config
+./engine/*/spring-headless --isolation --write-dir . ./startscript.txt
