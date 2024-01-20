@@ -40,6 +40,7 @@ local function log(level, str, ...)
 	)
 end
 
+--test comment please ignore
 local function logStartTests()
 	if testResultsFilePath == nil then
 		return
