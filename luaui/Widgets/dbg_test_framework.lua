@@ -12,6 +12,7 @@ function widget:GetInfo()
 end
 
 VFS.Include('luarules/testing/util.lua')
+local MochaJSONReporter = VFS.Include('luarules/testing/mochaJsonReporter.lua')
 
 local LOG_LEVEL = LOG.INFO
 
@@ -24,7 +25,7 @@ local noColorOutput = false
 local quitWhenDone = false
 local gameStartTestPatterns = nil
 local testResultsFilePath = nil
-local testResultsFile = nil
+local testReporter = nil
 
 -- utils
 -- =====
@@ -39,35 +40,36 @@ local function log(level, str, ...)
 	)
 end
 
-local function logTAPResult(testResult)
-	if testResultsFile == nil then
+local function logStartTests()
+	if testResultsFilePath == nil then
 		return
 	end
-	testResultsFile:write(
-		string.format(
-			"%s %d - %s%s\n",
-			(testResult.result == TEST_RESULT.PASS) and "ok" or "not ok",
-			testResult.index,
-			testResult.label,
-			(testResult.result == TEST_RESULT.SKIP) and " # SKIP" or ""
-		)
-	)
 
-	if testResult.result == TEST_RESULT.FAIL then
-		testResultsFile:write("  ---\n")
-		if testResult.error then
-			testResultsFile:write("  message: " .. testResult.error .. "\n")
-		end
-		testResultsFile:write("  severity: fail\n")
-		testResultsFile:write("  ...\n")
-	elseif testResult.result == TEST_RESULT.ERROR then
-		testResultsFile:write("  ---\n")
-		if testResult.error then
-			testResultsFile:write("  message: " .. testResult.error .. "\n")
-		end
-		testResultsFile:write("  severity: error\n")
-		testResultsFile:write("  ...\n")
+	testReporter = MochaJSONReporter:new()
+	testReporter:startTests()
+end
+
+local function logEndTests(duration)
+	if testResultsFilePath == nil then
+		return
 	end
+	testReporter:endTests(duration)
+
+	testReporter:report(testResultsFilePath)
+end
+
+local function logTestResult(testResult)
+	if testResultsFilePath == nil then
+		return
+	end
+
+	testReporter:testResult(
+		testResult.label,
+		testResult.filename,
+		(testResult.result == TEST_RESULT.PASS),
+		testResult.milliseconds,
+		testResult.error
+	)
 end
 
 -- main code
@@ -93,7 +95,7 @@ local function findTestFiles(directory, patterns, rootDirectory, result)
 
 	for _, filename in ipairs(VFS.DirList(directory, "*", VFS.RAW_FIRST)) do
 		local relativePath = string.sub(filename, string.len(rootDirectory) + 1)
-		local withoutExtension = removeFileExtension(filename)
+		local withoutExtension = removeFileExtension(relativePath)
 		if patterns == nil or #patterns == 0 or matchesPatterns(withoutExtension, patterns) then
 			log(LOG.INFO, "Found test file: " .. relativePath)
 			result[#result + 1] = {
@@ -175,7 +177,7 @@ local function resetActiveTestState()
 		coroutine = nil,
 		environment = nil,
 		startFrame = nil,
-		file = nil,
+		filename = nil,
 		label = nil,
 	}
 end
@@ -243,10 +245,7 @@ local function startTests(patterns)
 		return
 	end
 
-	if testResultsFilePath ~= nil then
-		testResultsFile = io.open(testResultsFilePath, "w")
-		testResultsFile:write("TAP version 14\n")
-	end
+	logStartTests()
 
 	resetState()
 
@@ -278,6 +277,7 @@ local function finishTest(result)
 
 	result.index = result.index or testRunState.index
 	result.label = result.label or activeTestState.label
+	result.filename = result.filename or activeTestState.filename
 	if activeTestState and activeTestState.startFrame and result.frames == nil then
 		result.frames = Spring.GetGameFrame() - activeTestState.startFrame
 	end
@@ -285,7 +285,7 @@ local function finishTest(result)
 
 	log(LOG.NOTICE, formatTestResult(result, noColorOutput))
 
-	logTAPResult(result)
+	logTestResult(result)
 
 	testRunState.results[#(testRunState.results) + 1] = result
 
@@ -304,10 +304,7 @@ local function finishTest(result)
 			displayTestResults(testRunState.results)
 		end
 
-		if testResultsFile ~= nil and io.type(testResultsFile) == "file" then
-			testResultsFile:write("1.." .. #(testRunState.files) .. "\n")
-			io.close(testResultsFile)
-		end
+		logEndTests(getRunTestsTime())
 
 		if quitWhenDone then
 			Spring.SendCommands("quitforce")
@@ -765,9 +762,9 @@ local function step()
 	-- is there a test set up? if not, create one
 	if activeTestState.coroutine == nil then
 		activeTestState.label = testRunState.files[testRunState.index].label
-		activeTestState.file = testRunState.files[testRunState.index]
+		activeTestState.filename = testRunState.files[testRunState.index].filename
 
-		local success, envOrError = loadTestFromFile(activeTestState.file.filename)
+		local success, envOrError = loadTestFromFile(activeTestState.filename)
 
 		if success then
 			log(LOG.DEBUG, "Initializing test: " .. activeTestState.label)
@@ -871,7 +868,7 @@ function widget:Initialize()
 			noColorOutput = true
 			quitWhenDone = true
 			gameStartTestPatterns = splitPhrases(optLine)
-			testResultsFilePath = "testlog/results.tap"
+			testResultsFilePath = "testlog/results.json"
 		end,
 		nil,
 		"t"
