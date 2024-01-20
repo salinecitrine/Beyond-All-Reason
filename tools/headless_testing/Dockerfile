@@ -7,12 +7,12 @@ RUN apt-get update && \
 
 RUN mkdir -p maps games engine
 
-COPY ./download-engine.sh /bar/
+COPY --chmod=755 ./download-engine.sh /bar/
 RUN /bar/download-engine.sh
 
 RUN /bar/engine/*/pr-downloader --filesystem-writepath "/bar" download-map "Full Metal Plate 1.5"
 
 COPY ./startscript.txt /bar/
-COPY ./start.sh /bar/
+COPY --chmod=755 ./start.sh /bar/
 
 ENTRYPOINT /bar/start.sh /bar /bar/startscript.txt
