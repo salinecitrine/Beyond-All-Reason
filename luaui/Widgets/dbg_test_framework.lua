@@ -578,6 +578,7 @@ local function initializeTestEnvironment()
 		SyncedRun = SyncedRun,
 		__runTestInternal = runTestInternal,
 		yieldable_pcall = yieldable_pcall,
+		TEST_RESULT = TEST_RESULT,
 
 		-- widgets
 		widgetHandler = widgetHandler,
@@ -625,6 +626,7 @@ local function initializeTestEnvironment()
 		type = type,
 		unpack = unpack,
 		select = select,
+		collectgarbage = collectgarbage,
 
 		Json = Json,
 	}
@@ -867,6 +869,7 @@ function widget:Update(dt)
 end
 
 function widget:Initialize()
+	widgetHandler:DisableWidget("Test Framework Watchdog")
 	if not Spring.Utilities.IsDevMode() then
 		widgetHandler:RemoveWidget(self)
 	end
