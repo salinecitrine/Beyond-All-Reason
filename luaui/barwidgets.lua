@@ -473,7 +473,7 @@ function widgetHandler:LoadWidget(filename, fromZip, enableLocalsAccess)
 		-- opposed to not being able to access them at all from outside the widget). This is accomplished by loading the
 		-- widget with an additional code snippet to list all of the local variables, getting that result, and then
 		-- loading again with a code snippet that sets up external access to those variables.
-		localsAccess = localsAccess or VFS.Include('luarules/testing/localsAccess.lua')
+		localsAccess = localsAccess or VFS.Include('luarules/testing/locals_access.lua')
 
 		local textWithLocalsDetector = text .. localsAccess.localsDetectorString
 
@@ -1225,12 +1225,12 @@ end
 
 
 function widgetHandler:Update()
-	
-	if collectgarbage("count") > 1200000 then 
+
+	if collectgarbage("count") > 1200000 then
 		Spring.Echo("Warning: Emergency garbage collection due to exceeding 1.2GB LuaRAM")
 		collectgarbage("collect")
 	end
-	
+
 	local deltaTime = Spring.GetLastUpdateSeconds()
 	-- update the hour timer
 	hourTimer = (hourTimer + deltaTime) % 3600.0
