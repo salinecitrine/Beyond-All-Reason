@@ -1,3 +1,11 @@
+--[[
+usage:
+* load file with localsDetectorString appended. when loaded, it will return a list of local variable names
+* load the file again, with generateLocalsAccessStr(localsNames)) appended.
+* setmetatable on the new environment to generateLocalsAccessMetatable(<old_metatable>)
+Through the metatable, local variables within the loaded file will now be accessible as if they were globals
+]]--
+
 local localsDetectorString = [[
 
 local __locals = {}
@@ -57,18 +65,6 @@ local function generateLocalsAccessMetatable(baseMetatable)
 		end,
 	}
 end
-
---[[
-example usage:
-
-local function loadFileWithLocals(filename)
-	local _, localsNames = loadFile(filename, localsDetectorString)
-	local env, _ = loadFile(filename, generateLocalsAccessStr(localsNames))
-	setmetatable(env, generateLocalsAccessMetatable(getmetatable(env)))
-
-	return env
-end
-]]--
 
 return {
 	localsDetectorString = localsDetectorString,
