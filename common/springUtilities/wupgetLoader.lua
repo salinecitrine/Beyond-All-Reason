@@ -50,33 +50,72 @@ local function extractInfo(wupget, filename)
 	return info;
 end
 
+local function map(list, func)
+	local result = {}
+	for i, v in ipairs(list) do
+		result[i] = func(v, i)
+	end
+	return result
+end
+
+local function sortNodes(nodes, getParent, getChildren, comparator)
+	local result = {}
+
+	local function dfsSort(node)
+		result[#result + 1] = node
+
+		local children = getChildren(node)
+		if children then
+			table.sort(children, comparator)
+			for _, child in ipairs(children) do
+				dfsSort(child)
+			end
+		end
+	end
+
+	local roots = {}
+	for _, node in ipairs(nodes) do
+		if not getParent(node) then
+			roots[#roots + 1] = node
+		end
+	end
+	table.sort(roots, comparator)
+
+	for _, root in ipairs(roots) do
+		dfsSort(root)
+	end
+
+	return result
+end
+
 --- sorts wupgets by layer, then orderList entry, then name
 ---
 --- child wupgets are placed after their parent wupgets and sorted amongst themselves
 ---@return table[] a new list of sorted wupgets
 local function sortedWupgetList(wupgets, orderList, infoAccessor)
-
-	-- prepare tables and local functions
-
-	---@type table[]
-	local resultsList = {}
+	---@type table<WupgetInfo, table>
+	local nameToWupget = {}
 	---@type table<table, WupgetInfo>
 	local wupgetToInfo = {}
-	---@type table<string, table>
-	local childrenToAdd = {}
 
 	for _, wupget in ipairs(wupgets) do
 		---@type WupgetInfo
 		local info = infoAccessor(wupget)
+		nameToWupget[info.name] = wupget
 		wupgetToInfo[wupget] = info
-		if info.parent == nil then
-			resultsList[#resultsList + 1] = wupget
-		else
-			childrenToAdd[info.filename] = wupget
-		end
 	end
 
-	local function infoComp(w1, w2)
+	local function getParent(node)
+		return wupgetToInfo[node].parent and nameToWupget[wupgetToInfo[node].parent.name] or nil
+	end
+
+	local function getChildren(node)
+		return wupgetToInfo[node].children and map(wupgetToInfo[node].children, function(n)
+			return nameToWupget[n.name]
+		end) or {}
+	end
+
+	local function comparator(w1, w2)
 		local info1 = wupgetToInfo[w1]
 		local info2 = wupgetToInfo[w2]
 
@@ -96,43 +135,7 @@ local function sortedWupgetList(wupgets, orderList, infoAccessor)
 		end
 	end
 
-	local function insertChildren(parentIndex, parentInfo)
-		if parentInfo.children and #parentInfo.children > 0 then
-			local currentChildren = {}
-
-			for _, childInfo in ipairs(parentInfo.children) do
-				local child = childrenToAdd[childInfo.filename]
-				if child ~= nil then
-					currentChildren[#currentChildren + 1] = child
-					childrenToAdd[childInfo.filename] = nil
-				end
-			end
-
-			table.sort(currentChildren, infoComp)
-
-			for childIdx = #currentChildren, 1, -1 do
-				local child = currentChildren[childIdx]
-				table.insert(resultsList, parentIndex + 1, child)
-				insertChildren(parentIndex + 1, wupgetToInfo[child])
-			end
-		end
-	end
-
-	-- sort the wupgets!
-	table.sort(resultsList, infoComp)
-
-	-- iterating backwards is the only way this loop is certain to end
-	-- also makes it much easier to insert into the list
-	-- since new entries will keep pushing existing ones back
-	for idx = #resultsList, 1, -1 do
-		insertChildren(idx, wupgetToInfo[resultsList[idx]])
-	end
-
-	if #childrenToAdd > 0 then
-		Spring.Log('Wupget Loader :: sortWupgets()', LOG.ERROR, "Not all child wupgets were placed into sorted list! Count: " .. #childrenToAdd)
-	end
-
-	return resultsList
+	return sortNodes(wupgets, getParent, getChildren, comparator, wupgetToInfo)
 end
 
 -- forward declarations as these functions all rely on each other
