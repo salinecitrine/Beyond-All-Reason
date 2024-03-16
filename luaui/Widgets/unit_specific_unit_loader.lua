@@ -56,6 +56,32 @@ function widget:Initialize()
     end
 end
 
+--[[
+run on:
+	alt or ctrl
+
+vars:
+	-- centered unitID, unitDefID
+	id, unitDef
+	-- potential target unit id
+	unitID
+	-- true if we want to target enemies, false otherwise (todo: probably wrong to check reclaimAllowEnemies)
+	targetEnemy = Game.reclaimAllowEnemies and spGetUnitAllyTeam(id) ~= allyTeam
+	-- units in range, filtered to allies if not targetEnemy
+	preareaUnits
+	-- preareaUnits, filtered by condition
+	areaUnits
+
+condition (same as reclaimer):
+		-- ctrl/alt + want to target enemies + unit is an enemy -> target all enemies
+		(targetEnemy and spGetUnitAllyTeam(unitID) ~= allyTeam)
+		-- alt + don't want to target enemies + matching unit type -> target all allies with same unitDefID
+	 or (options.alt and not targetEnemy and spGetUnitDefID(unitID) == unitDef )
+	 	-- ctrl + don't want to target enemies -> target all allies
+	 or (options.ctrl and not targetEnemy)
+
+]]--
+
 function widget:CommandNotify(id, params, options)
 
 	if id ~= CMD_LOAD_UNITS or #params ~= 4 then
@@ -97,6 +123,10 @@ function widget:CommandNotify(id, params, options)
 					if options.shift then
 						cmdOpts = {"shift"}
 					end
+					--    targetIndex %   targetCount == selectedIndex %   targetCount
+					-- or targetIndex % selectedCount == selectedIndex % selectedCount
+
+					-- distributes commands evenly
 					if i%#areaUnits == ct%#areaUnits or ct%#selUnits == i%#selUnits then
 						Spring.GiveOrderToUnit(unitID, CMD_LOAD_UNITS, {areaUnitID}, cmdOpts)
 					end

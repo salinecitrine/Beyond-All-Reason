@@ -1,30 +1,53 @@
 function widget:GetInfo()
 	return {
 		name = "Set Target by Unit Type",
-		desc = "Hold down Alt and give an area set target order centered on a unit of the type to target",
+		desc = "Hold down Alt and give an area command centered on a unit of the type to restrict the command to",
 		license = "GNU GPL, v2 or later",
 		layer = 0,
 		enabled = true
 	}
 end
 
-local spGetUnitDefID = Spring.GetUnitDefID
-local spGetUnitAllyTeam = Spring.GetUnitAllyTeam
-
 local CMD_SET_TARGET = 34923
+
+-- combine with smart area reclaim?
+
+--[[
+possible options or concerns:
+* can target enemies
+* can target allies
+* distribute commands (always/never/space)
+* when to send shift
+]]--
+local commandSpecs = {
+	[CMD_SET_TARGET] = {},
+	[CMD.RECLAIM] = {}, -- reclaim for units only
+	[CMD.LOAD] = {},
+	[CMD.REPAIR] = {},
+	[CMD.RESURRECT] = {}, -- check for feature rez name instead of unitdefid
+	[CMD.CAPTURE] = {},
+	[CMD.AREA_ATTACK] = {}, -- attack?
+}
+
+--[[
+existing widget summary
+* mod keys
+	* alt -> enemy: restrict team
+	          ally: restrict type
+	* ctrl -> restrict team
+* load distributes commands
+]]--
+
+local SpringGetUnitDefID = Spring.GetUnitDefID
+local SpringGetUnitAllyTeam = Spring.GetUnitAllyTeam
 
 local allyTeam = Spring.GetMyAllyTeamID()
 local gameStarted
 
-function maybeRemoveSelf()
-	if Spring.GetSpectatingState() and (Spring.GetGameFrame() > 0 or gameStarted) then
+local function maybeRemoveSelf()
+	if Spring.GetSpectatingState() or Spring.IsReplay() then
 		widgetHandler:RemoveWidget()
 	end
-end
-
-function widget:GameStart()
-	gameStarted = true
-	maybeRemoveSelf()
 end
 
 function widget:PlayerChanged(playerID)
@@ -32,13 +55,26 @@ function widget:PlayerChanged(playerID)
 end
 
 function widget:Initialize()
-	if Spring.IsReplay() or Spring.GetGameFrame() > 0 then
-		maybeRemoveSelf()
+	maybeRemoveSelf()
+end
+
+local function distributeCommands(sourceIDs, targetIDs, cmdCallback)
+	local sourceCmdIndex = {}
+	for sourceIndex = 1, #sourceIDs do
+		local sourceID = sourceIDs[sourceIndex]
+		for targetIndex = 1, #targetIDs do
+			local targetID = targetIDs[targetIndex]
+
+			if targetIndex % #targetIDs == sourceIndex % #targetIDs or sourceIndex % #sourceIDs == targetIndex % #sourceIDs then
+				sourceCmdIndex[sourceID] = (sourceCmdIndex[sourceID] or 0) + 1
+				cmdCallback(sourceID, targetID, sourceCmdIndex[sourceID])
+			end
+		end
 	end
 end
 
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
-	if cmdID ~= CMD_SET_TARGET or #cmdParams ~= 4 or not cmdOpts.alt then
+	if not commandSpecs[cmdID] or #cmdParams ~= 4 or not cmdOpts.alt then
 		return
 	end
 
@@ -53,13 +89,13 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 
 	local cmdRadius = cmdParams[4]
 
-	local filterUnitDefID = spGetUnitDefID(targetId)
+	local filterUnitDefID = SpringGetUnitDefID(targetId)
 	local areaUnits = Spring.GetUnitsInCylinder(cmdX, cmdZ, cmdRadius)
 
 	local newCmds = {}
 	for i = 1, #areaUnits do
 		local unitID = areaUnits[i]
-		if spGetUnitAllyTeam(unitID) ~= allyTeam and spGetUnitDefID(unitID) == filterUnitDefID then
+		if SpringGetUnitAllyTeam(unitID) ~= allyTeam and SpringGetUnitDefID(unitID) == filterUnitDefID then
 			local newCmdOpts = {}
 			if #newCmds ~= 0 or cmdOpts.shift then
 				newCmdOpts = { "shift" }
@@ -69,7 +105,8 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	end
 
 	if #newCmds > 0 then
-		Spring.GiveOrderArrayToUnitArray(Spring.GetSelectedUnits(), newCmds)
+		local selectedUnits = Spring.GetSelectedUnits()
+		Spring.GiveOrderArrayToUnitArray(selectedUnits, newCmds)
 		return true
 	end
 end

@@ -56,6 +56,30 @@ function widget:Initialize()
     end
 end
 
+--[[
+run on:
+	alt or ctrl
+
+vars:
+	-- centered unitID, unitDefID
+	id, unitDef
+	-- potential target unit id
+	unitID
+	-- true if we want to target enemies, false otherwise
+	targetEnemy = Game.reclaimAllowEnemies and spGetUnitAllyTeam(id) ~= allyTeam
+	-- units in range, filtered to allies if not targetEnemy
+	areaUnits
+
+condition:
+		-- ctrl/alt + want to target enemies + unit is an enemy -> target all enemies
+		(targetEnemy and spGetUnitAllyTeam(unitID) ~= allyTeam)
+		-- alt + don't want to target enemies + matching unit type -> target all allies with same unitDefID
+	 or (options.alt and not targetEnemy and spGetUnitDefID(unitID) == unitDef )
+	 	-- ctrl + don't want to target enemies -> target all allies
+	 or (options.ctrl and not targetEnemy)
+
+]]--
+
 function widget:CommandNotify(id, params, options)
 
 	if id ~= CMD_RECLAIM or #params ~= 4 then
