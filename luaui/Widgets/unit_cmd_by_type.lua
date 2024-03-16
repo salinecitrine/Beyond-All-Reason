@@ -8,6 +8,8 @@ function widget:GetInfo()
 	}
 end
 
+--todo: highlight units as circle is drawn? check select drag highlight widget
+
 local CMD_SET_TARGET = 34923
 
 -- combine with smart area reclaim?
