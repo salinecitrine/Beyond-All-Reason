@@ -102,6 +102,8 @@ local commandSpecs = {
 		validTargetTypes = {
 			unit = true,
 		},
+		canTargetAllies = false,
+		canTargetEnemies = true,
 		--color = { 1.0, 0.75, 1.0, 0.25 },
 		color = { 1, 0.75, 0, 0.3 },
 	},
@@ -220,6 +222,22 @@ local function getTargetFilterType(targetType, targetID)
 	end
 end
 
+local function getTargetPosition(targetType, targetID)
+	if targetType == "unit" then
+		return Spring.GetUnitPosition(targetID)
+	elseif targetType == "feature" then
+		return Spring.GetFeaturePosition(targetID)
+	end
+end
+
+local function getTargetRadius(targetType, targetID)
+	if targetType == "unit" then
+		return UnitDefs[Spring.GetUnitDefID(targetID)].radius
+	elseif targetType == "feature" then
+		return UnitDefs[Spring.GetUnitDefID(targetID)].radius
+	end
+end
+
 local activeCmdState = nil
 function widget:MousePress(x, y, button)
 	if button ~= 1 then
@@ -248,6 +266,8 @@ function widget:MousePress(x, y, button)
 			activeCmdState = nil
 			return
 		end
+
+		Spring.Echo("Spring.GetFeatureResurrect", Spring.GetFeatureResurrect(targetID))
 
 		local _, worldPosition = Spring.TraceScreenRay(x, y, true, true)
 		activeCmdState = {
@@ -316,7 +336,8 @@ function widget:DrawWorld()
 		gl.Color(1.0, 1.0, 1.0, 1.0)
 	end
 	for _, targetID in ipairs(targetIDs) do
-		local ux, uy, uz = Spring.GetUnitPosition(targetID)
+		local ux, uy, uz = getTargetPosition(activeCmdState.targetType, targetID)
+		local ur = getTargetRadius(activeCmdState.targetType, targetID)
 		gl.DrawGroundCircle(ux, 0, uz, UnitDefs[Spring.GetUnitDefID(targetID)].radius * 0.9, 32)
 		gl.DrawGroundCircle(ux, 0, uz, UnitDefs[Spring.GetUnitDefID(targetID)].radius * 1.0, 32)
 	end
@@ -331,11 +352,12 @@ function widget:DrawScreenEffects()
 
 	gl.Color(1.0, 1.0, 1.0, 1.0)
 	gl.Text(string.format(
-		"%s | %s | %s | %s",
+		"%s | %s | %s | %s | %s",
 		activeCmdState.targetType or "<none>",
 		type(activeCmdState.targetId) == "number" and unitIDString(activeCmdState.targetId) or "<none>",
 		unitDefIDString(activeCmdState.targetFilterType) or "<none>",
-		activeCmdState.targetAllyTeamID or "<none>"
+		activeCmdState.targetAllyTeamID or "<none>",
+		Spring.GetFeatureResurrect(activeCmdState.targetId) or "<none>"
 	), mx + 15, my - 12, 40, "ao")
 end
 
