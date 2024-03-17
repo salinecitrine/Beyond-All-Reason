@@ -75,6 +75,15 @@ local function map(tbl, callback)
 	return result
 end
 
+local function clamp(min, max, num)
+	if (num < min) then
+		return min
+	elseif (num > max) then
+		return max
+	end
+	return num
+end
+
 local CMD_SET_TARGET = 34923
 
 -- combine with smart area reclaim?
@@ -93,38 +102,62 @@ local commandSpecs = {
 		validTargetTypes = {
 			unit = true,
 		},
+		--color = { 1.0, 0.75, 1.0, 0.25 },
+		color = { 1, 0.75, 0, 0.3 },
 	},
 	[CMD.RECLAIM] = {
+		-- reclaim for units only
 		validTargetTypes = {
 			unit = true,
 		},
-	}, -- reclaim for units only
+		color = { 0.5, 1.0, 0.4, 0.4 },
+	},
 	[CMD.LOAD_UNITS] = {
 		validTargetTypes = {
 			unit = true,
 		},
+		color = { 0.4, 0.9, 0.9, 0.3 },
 	},
 	[CMD.REPAIR] = {
 		validTargetTypes = {
 			unit = true,
 		},
+		color = { 1.0, 0.9, 0.2, 0.4 },
 	},
 	[CMD.RESURRECT] = {
+		-- check for feature rez name instead of unitdefid
 		validTargetTypes = {
 			feature = true,
 		},
-	}, -- check for feature rez name instead of unitdefid
+		color = { 0.9, 0.5, 1.0, 0.25 },
+	},
 	[CMD.CAPTURE] = {
 		validTargetTypes = {
 			unit = true,
 		},
+		color = { 1.0, 1.0, 0.3, 0.3 },
 	},
 	[CMD.ATTACK] = {
 		validTargetTypes = {
 			unit = true,
 		},
+		color = { 1.0, 0.2, 0.2, 0.3 },
 	},
 }
+
+for cmdID, spec in pairs(commandSpecs) do
+	if spec.color then
+		spec.color = {
+			spec.color[1],
+			spec.color[2],
+			spec.color[3],
+			spec.color[4] * 100,
+		}
+		spec.color = map(spec.color, function(v)
+			return clamp(0, 1, v)
+		end)
+	end
+end
 
 --[[
 existing widget summary
@@ -138,7 +171,6 @@ existing widget summary
 local SpringGetUnitDefID = Spring.GetUnitDefID
 local SpringGetUnitAllyTeam = Spring.GetUnitAllyTeam
 
---todo: update this when necessary (maybe not often?)
 local myAllyTeam = Spring.GetMyAllyTeamID()
 
 local function findTargets(spec, targetType, targetID, cmdX, cmdZ, cmdRadius)
@@ -154,7 +186,7 @@ local function findTargets(spec, targetType, targetID, cmdX, cmdZ, cmdRadius)
 	local targetIDs = {}
 	for i = 1, #areaUnits do
 		local unitID = areaUnits[i]
-		if SpringGetUnitAllyTeam(unitID) ~= myAllyTeam and SpringGetUnitDefID(unitID) == targetUnitDefID then
+		if SpringGetUnitAllyTeam(unitID) == targetAllyTeamID and SpringGetUnitDefID(unitID) == targetUnitDefID then
 			targetIDs[#targetIDs + 1] = unitID
 		end
 	end
@@ -205,14 +237,21 @@ function widget:MousePress(x, y, button)
 			cmdID = cmdID,
 			cmdType = cmdType,
 			cmdName = cmdName,
-		}
+		},
 	}))
 
 	-- check for alt when drawing because it can change between mouse press and release
 	if commandSpecs[cmdID] then
 		local targetType, targetID = Spring.TraceScreenRay(x, y)
+
+		if targetType ~= "unit" and targetType ~= "feature" then
+			activeCmdState = nil
+			return
+		end
+
 		local _, worldPosition = Spring.TraceScreenRay(x, y, true, true)
 		activeCmdState = {
+			spec = commandSpecs[cmdID],
 			cmdID = cmdID,
 			position = { x, y },
 			targetType = targetType,
@@ -251,10 +290,15 @@ function widget:DrawWorld()
 
 	local mx, my = Spring.GetMouseState()
 	local _, worldPosition = Spring.TraceScreenRay(mx, my, true, true)
+
+	if not worldPosition then
+		return
+	end
+
 	local cmdRadius = distanceXZ(activeCmdState.position, worldPosition)
 
 	local targetIDs = findTargets(
-		commandSpecs[activeCmdState.cmdID],
+		activeCmdState.spec,
 		activeCmdState.targetType,
 		activeCmdState.targetId,
 		activeCmdState.position[1],
@@ -266,10 +310,15 @@ function widget:DrawWorld()
 		return
 	end
 
-	gl.Color(1.0, 1.0, 1.0, 1.0)
+	if activeCmdState.spec and activeCmdState.spec.color then
+		gl.Color(unpack(activeCmdState.spec.color))
+	else
+		gl.Color(1.0, 1.0, 1.0, 1.0)
+	end
 	for _, targetID in ipairs(targetIDs) do
 		local ux, uy, uz = Spring.GetUnitPosition(targetID)
-		gl.DrawGroundCircle(ux, 0, uz, UnitDefs[Spring.GetUnitDefID(targetID)].radius, 32)
+		gl.DrawGroundCircle(ux, 0, uz, UnitDefs[Spring.GetUnitDefID(targetID)].radius * 0.9, 32)
+		gl.DrawGroundCircle(ux, 0, uz, UnitDefs[Spring.GetUnitDefID(targetID)].radius * 1.0, 32)
 	end
 end
 
@@ -279,14 +328,12 @@ function widget:DrawScreenEffects()
 	end
 
 	local mx, my = Spring.GetMouseState()
-	local _, worldPosition = Spring.TraceScreenRay(mx, my, true, true)
-	local cmdRadius = distanceXZ(activeCmdState.position, worldPosition)
 
 	gl.Color(1.0, 1.0, 1.0, 1.0)
 	gl.Text(string.format(
 		"%s | %s | %s | %s",
 		activeCmdState.targetType or "<none>",
-		unitIDString(activeCmdState.targetId) or "<none>",
+		type(activeCmdState.targetId) == "number" and unitIDString(activeCmdState.targetId) or "<none>",
 		unitDefIDString(activeCmdState.targetFilterType) or "<none>",
 		activeCmdState.targetAllyTeamID or "<none>"
 	), mx + 15, my - 12, 40, "ao")
