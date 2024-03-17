@@ -8,7 +8,43 @@ function widget:GetInfo()
 	}
 end
 
---todo: highlight units as circle is drawn? check select drag highlight widget
+local function _distributeTargets_iter(state, i)
+	local sourceCount = #(state.sourceIDs)
+	local targetCount = #(state.targetIDs)
+
+	if i >= math.max(sourceCount, targetCount) then
+		return nil
+	end
+
+	local sourceIndex = (i % sourceCount) + 1
+	local sourceSelectCount = math.floor(i / sourceCount) + 1
+
+	if not state.canSourceMultiple and sourceSelectCount > 1 then
+		return nil
+	end
+
+	local targetIndex = (i % targetCount) + 1
+	local targetSelectCount = math.floor(i / targetCount) + 1
+
+	if not state.canTargetMultiple and targetSelectCount > 1 then
+		return nil
+	end
+
+	i = i + 1
+
+	return i, state.sourceIDs[sourceIndex], state.targetIDs[targetIndex], sourceSelectCount, targetSelectCount
+end
+
+local function distributeTargets(sourceIDs, targetIDs, canSourceMultiple, canTargetMultiple)
+	return _distributeTargets_iter, {
+		sourceIDs = sourceIDs,
+		targetIDs = targetIDs,
+		canSourceMultiple = canSourceMultiple,
+		canTargetMultiple = canTargetMultiple,
+	}, 0
+end
+
+--todo: highlight units as circle is drawn? check unit_smart_select.lua
 
 local CMD_SET_TARGET = 34923
 
@@ -46,6 +82,14 @@ local SpringGetUnitAllyTeam = Spring.GetUnitAllyTeam
 local allyTeam = Spring.GetMyAllyTeamID()
 local gameStarted
 
+local function createCommand(cmdID, cmdOpts, targetID, cmdIndex)
+	local newCmdOpts = {}
+	if #cmdIndex >= 1 or cmdOpts.shift then
+		newCmdOpts = { "shift" }
+	end
+	return { cmdID, { targetID }, newCmdOpts }
+end
+
 local function maybeRemoveSelf()
 	if Spring.GetSpectatingState() or Spring.IsReplay() then
 		widgetHandler:RemoveWidget()
@@ -58,21 +102,6 @@ end
 
 function widget:Initialize()
 	maybeRemoveSelf()
-end
-
-local function distributeCommands(sourceIDs, targetIDs, cmdCallback)
-	local sourceCmdIndex = {}
-	for sourceIndex = 1, #sourceIDs do
-		local sourceID = sourceIDs[sourceIndex]
-		for targetIndex = 1, #targetIDs do
-			local targetID = targetIDs[targetIndex]
-
-			if targetIndex % #targetIDs == sourceIndex % #targetIDs or sourceIndex % #sourceIDs == targetIndex % #sourceIDs then
-				sourceCmdIndex[sourceID] = (sourceCmdIndex[sourceID] or 0) + 1
-				cmdCallback(sourceID, targetID, sourceCmdIndex[sourceID])
-			end
-		end
-	end
 end
 
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
@@ -94,21 +123,17 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	local filterUnitDefID = SpringGetUnitDefID(targetId)
 	local areaUnits = Spring.GetUnitsInCylinder(cmdX, cmdZ, cmdRadius)
 
-	local newCmds = {}
+	local targetIDs = {}
 	for i = 1, #areaUnits do
 		local unitID = areaUnits[i]
 		if SpringGetUnitAllyTeam(unitID) ~= allyTeam and SpringGetUnitDefID(unitID) == filterUnitDefID then
-			local newCmdOpts = {}
-			if #newCmds ~= 0 or cmdOpts.shift then
-				newCmdOpts = { "shift" }
-			end
-			newCmds[#newCmds + 1] = { CMD_SET_TARGET, { unitID }, newCmdOpts }
+			targetIDs[#targetIDs + 1] = unitID
 		end
 	end
 
-	if #newCmds > 0 then
+	if #targetIDs > 0 then
 		local selectedUnits = Spring.GetSelectedUnits()
-		Spring.GiveOrderArrayToUnitArray(selectedUnits, newCmds)
+		Spring.GiveOrderArrayToUnitArray(selectedUnits, targetIDs)
 		return true
 	end
 end
