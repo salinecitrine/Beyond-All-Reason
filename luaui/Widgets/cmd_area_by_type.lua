@@ -8,6 +8,15 @@ function widget:GetInfo()
 	}
 end
 
+local function enum(...)
+	local args = { ... }
+	local result = {}
+	for _, v in ipairs(args) do
+		result[v] = v
+	end
+	return result
+end
+
 local function cmdIDString(cmdID)
 	if cmdID < 0 then
 		return "{Build " .. UnitDefs[-cmdID].translatedHumanName .. "} (" .. cmdID .. ")"
@@ -88,6 +97,13 @@ local CMD_SET_TARGET = 34923
 
 -- combine with smart area reclaim?
 
+--local TEST_RESULT = enum(
+--	"PASS",
+--	"FAIL",
+--	"SKIP",
+--	"ERROR"
+--)
+
 --[[
 possible options or concerns:
 * can target enemies
@@ -96,53 +112,104 @@ possible options or concerns:
 * can target features (and how to only choose "similar" features)
 * distribute commands (always/never/space)
 * when to send shift
+* sort targets (distance, etc)
+
+source-target matching categories:
+* set_target, attack
+	* same targets and order for each source
+	* ideally sorted by distance to average source
+* load_units
+	* each source gets all targets
+	* order is offset from each other source, so as many as possible can be executed in parallel
+* reclaim, repair, resurrect, capture
+	* each source gets all targets, but order doesn't matter as much
+	* ideally sorted by distance to average source
 ]]--
 local commandSpecs = {
 	[CMD_SET_TARGET] = {
+		-- A: target enemy units that share unitdefid
+		-- same commands for every source unit
+		-- possible sort by distance to average source unit
 		validTargetTypes = {
 			unit = true,
 		},
-		canTargetAllies = false,
-		canTargetEnemies = true,
+		canTargetAllyUnits = false,
+		canTargetEnemyUnits = true,
+		canTargetFeatures = false,
 		--color = { 1.0, 0.75, 1.0, 0.25 },
 		color = { 1, 0.75, 0, 0.3 },
 	},
 	[CMD.RECLAIM] = {
-		-- reclaim for units only
+		-- A: target allied units that share unitdefid
+		-- B: target enemy units that share unitdefid
+		-- probably same commands for each source unit (maybe distance to individual source?)
+		-- probably best to at least sort by distance to average source unit
 		validTargetTypes = {
 			unit = true,
 		},
+		canTargetAllyUnits = true,
+		canTargetEnemyUnits = true,
+		canTargetFeatures = false,
 		color = { 0.5, 1.0, 0.4, 0.4 },
 	},
 	[CMD.LOAD_UNITS] = {
+		-- A: target allied units that share unitdefid
+		-- B: target enemy units that share unitdefid
+		-- commands distributed among source units, but each covering all targets
 		validTargetTypes = {
 			unit = true,
 		},
+		canTargetAllyUnits = true,
+		canTargetEnemyUnits = true,
+		canTargetFeatures = false,
 		color = { 0.4, 0.9, 0.9, 0.3 },
 	},
 	[CMD.REPAIR] = {
+		-- A: target allied units that share unitdefid
+		-- probably same commands for each source unit (maybe distance to individual source?)
+		-- probably best to at least sort by distance to average source unit
 		validTargetTypes = {
 			unit = true,
 		},
+		canTargetAllyUnits = true,
+		canTargetEnemyUnits = false,
+		canTargetFeatures = false,
 		color = { 1.0, 0.9, 0.2, 0.4 },
 	},
 	[CMD.RESURRECT] = {
-		-- check for feature rez name instead of unitdefid
+		-- A: target features that share featureResurrect string
+		-- probably same commands for each source unit (maybe distance to individual source?)
+		-- probably best to at least sort by distance to average source unit
 		validTargetTypes = {
 			feature = true,
 		},
+		canTargetAllyUnits = false,
+		canTargetEnemyUnits = false,
+		canTargetFeatures = true,
 		color = { 0.9, 0.5, 1.0, 0.25 },
 	},
 	[CMD.CAPTURE] = {
+		-- A: target enemy units that share unitdefid
+		-- probably same commands for each source unit (maybe distance to individual source?)
+		-- probably best to at least sort by distance to average source unit
 		validTargetTypes = {
 			unit = true,
 		},
+		canTargetAllyUnits = false,
+		canTargetEnemyUnits = true,
+		canTargetFeatures = false,
 		color = { 1.0, 1.0, 0.3, 0.3 },
 	},
 	[CMD.ATTACK] = {
+		-- B: target enemy units that share unitdefid
+		-- same commands for every source unit
+		-- possible sort by distance to average source unit
 		validTargetTypes = {
 			unit = true,
 		},
+		canTargetAllyUnits = false,
+		canTargetEnemyUnits = true,
+		canTargetFeatures = false,
 		color = { 1.0, 0.2, 0.2, 0.3 },
 	},
 }
@@ -173,7 +240,24 @@ existing widget summary
 local SpringGetUnitDefID = Spring.GetUnitDefID
 local SpringGetUnitAllyTeam = Spring.GetUnitAllyTeam
 
-local myAllyTeam = Spring.GetMyAllyTeamID()
+local myAllyTeamID = Spring.GetMyAllyTeamID()
+
+local function isValidInitialTarget(spec, targetType, targetID, targetAllyTeamID, targetResName)
+	if targetType == "unit" then
+		targetAllyTeamID = targetAllyTeamID or Spring.GetUnitAllyTeam(targetID)
+
+		if targetAllyTeamID == myAllyTeamID then
+			return spec.canTargetAllyUnits
+		else
+			return spec.canTargetEnemyUnits
+		end
+	elseif targetType == "feature" and spec.canTargetFeatures then
+		targetResName = targetResName or Spring.GetFeatureResurrect(targetID)
+		return targetResName ~= nil and #targetResName > 0
+	else
+		return false
+	end
+end
 
 local function findTargets(spec, targetType, targetID, cmdX, cmdZ, cmdRadius)
 	if not spec.validTargetTypes[targetType] then
@@ -204,7 +288,7 @@ end
 
 function widget:PlayerChanged(playerID)
 	maybeRemoveSelf()
-	myAllyTeam = Spring.GetMyAllyTeamID()
+	myAllyTeamID = Spring.GetMyAllyTeamID()
 end
 
 function widget:Initialize()
@@ -266,8 +350,6 @@ function widget:MousePress(x, y, button)
 			activeCmdState = nil
 			return
 		end
-
-		Spring.Echo("Spring.GetFeatureResurrect", Spring.GetFeatureResurrect(targetID))
 
 		local _, worldPosition = Spring.TraceScreenRay(x, y, true, true)
 		activeCmdState = {
