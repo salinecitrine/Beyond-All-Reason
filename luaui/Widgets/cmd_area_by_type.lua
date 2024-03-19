@@ -460,7 +460,8 @@ function widget:DrawScreenEffects()
 		Spring.GetFeatureResurrect(activeCmdState.targetID) or "<none>"
 	), mx + 15, my - 12, 40, "ao")
 end
-local MAX_TARGETS_PER_SOURCE = 5
+
+local MAX_TARGETS_PER_SOURCE = 6
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	Spring.Echo("[CommandNotify] " .. table.toString({
 		cmdID = cmdIDString(cmdID),
@@ -503,31 +504,32 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 		if spec.distributeTargets then
 			local unitArray = {}
 			local cmdArray = {}
-			for _, targetAssignment in ipairs(distributeTargets(selectedUnitIDs, targetIDs)) do
-				local sID = targetAssignment.sourceID
-				if targetsPerSource[sID] == nil or targetsPerSource[sID] < MAX_TARGETS_PER_SOURCE then
-					unitArray[#unitArray + 1] = sID
+			for _, assignment in ipairs(distributeTargets(selectedUnitIDs, targetIDs)) do
+				--if assignment.sourceIndex <= MAX_TARGETS_PER_SOURCE then
+				local sID = assignment.sourceID
+				local tID = assignment.targetID
 
-					local newCmdOpts = {}
-					if targetAssignment.sourceIndex > 1 or cmdOpts.shift then
-						newCmdOpts = { "shift" }
-					end
-
-					local tID = targetAssignment.targetID
-					if targetType == "feature" then
-						tID = tID + Game.maxUnits
-					end
-
-					cmdArray[#cmdArray + 1] = { cmdID, { tID }, newCmdOpts }
-
-					targetsPerSource[sID] = (targetsPerSource[sID] or 0) + 1
-
-					Spring.Echo("order", targetAssignment.sourceID, targetAssignment.targetID)
+				local newCmdOpts = {}
+				if assignment.sourceIndex > 1 or cmdOpts.shift then
+					newCmdOpts = { "shift" }
 				end
+
+				if targetType == "feature" then
+					tID = tID + Game.maxUnits
+				end
+
+				targetsPerSource[sID] = (targetsPerSource[sID] or 0) + 1
+
+				Spring.Echo("order", sID, tID)
+
+				unitArray[#unitArray + 1] = sID
+				cmdArray[#cmdArray + 1] = { cmdID, { tID }, newCmdOpts }
+				--end
 			end
 
 			Spring.Echo(string.format(
-				"[CommandNotify] giving %d commands to %d units", #cmdArray, #selectedUnitIDs
+				"[CommandNotify] giving %d (%d) commands to %d units",
+				#cmdArray, #unitArray, #selectedUnitIDs
 			))
 			Spring.GiveOrderArrayToUnitArray(unitArray, cmdArray, true)
 		else
@@ -539,6 +541,9 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 				if targetType == "feature" then
 					tID = tID + Game.maxUnits
 				end
+
+				Spring.Echo("order", tID)
+
 				return { cmdID, { tID }, newCmdOpts }
 			end)
 
