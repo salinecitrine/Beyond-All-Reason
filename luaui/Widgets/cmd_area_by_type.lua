@@ -461,7 +461,7 @@ function widget:DrawScreenEffects()
 	), mx + 15, my - 12, 40, "ao")
 end
 
-local MAX_TARGETS_PER_SOURCE = 6
+local MAX_TARGETS_PER_SOURCE = 8
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	Spring.Echo("[CommandNotify] " .. table.toString({
 		cmdID = cmdIDString(cmdID),
@@ -500,38 +500,41 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 
 	if #targetIDs > 0 then
 		local selectedUnitIDs = Spring.GetSelectedUnits()
-		local targetsPerSource = {}
+		local sourceTargets = {}
 		if spec.distributeTargets then
-			local unitArray = {}
-			local cmdArray = {}
+			local unitCmdArrays = {}
 			for _, assignment in ipairs(distributeTargets(selectedUnitIDs, targetIDs)) do
-				--if assignment.sourceIndex <= MAX_TARGETS_PER_SOURCE then
 				local sID = assignment.sourceID
 				local tID = assignment.targetID
-
-				local newCmdOpts = {}
-				if assignment.sourceIndex > 1 or cmdOpts.shift then
-					newCmdOpts = { "shift" }
+				if sourceTargets[sID] == nil then
+					sourceTargets[sID] = {}
 				end
+				if not sourceTargets[sID][tID] and assignment.sourceIndex <= MAX_TARGETS_PER_SOURCE then
+					local newCmdOpts = {}
+					if assignment.sourceIndex > 1 or cmdOpts.shift then
+						newCmdOpts = { "shift" }
+					end
 
-				if targetType == "feature" then
-					tID = tID + Game.maxUnits
+					if targetType == "feature" then
+						tID = tID + Game.maxUnits
+					end
+
+					Spring.Echo("order", sID, tID)
+
+					sourceTargets[sID][tID] = true
+					if unitCmdArrays[sID] == nil then
+						unitCmdArrays[sID] = {}
+					end
+					table.insert(unitCmdArrays[sID], { cmdID, { tID }, newCmdOpts })
 				end
-
-				targetsPerSource[sID] = (targetsPerSource[sID] or 0) + 1
-
-				Spring.Echo("order", sID, tID)
-
-				unitArray[#unitArray + 1] = sID
-				cmdArray[#cmdArray + 1] = { cmdID, { tID }, newCmdOpts }
-				--end
 			end
 
-			Spring.Echo(string.format(
-				"[CommandNotify] giving %d (%d) commands to %d units",
-				#cmdArray, #unitArray, #selectedUnitIDs
-			))
-			Spring.GiveOrderArrayToUnitArray(unitArray, cmdArray, true)
+			for unitID, cmdArray in pairs(unitCmdArrays) do
+				Spring.Echo(string.format(
+					"[CommandNotify] giving %d commands to %d units", #cmdArray, 1
+				))
+				Spring.GiveOrderArrayToUnit(unitID, cmdArray)
+			end
 		else
 			local cmdArray = map(targetIDs, function(tID, index)
 				local newCmdOpts = {}
