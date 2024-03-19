@@ -139,11 +139,12 @@ local commandSpecs = {
 	[CMD.RECLAIM] = {
 		-- A: target allied units that share unitdefid
 		-- B: target enemy units that share unitdefid
+		-- C: target features that share featureResurrect string
 		-- probably same commands for each source unit (maybe distance to individual source?)
 		-- probably best to at least sort by distance to average source unit
 		canTargetAllyUnits = true,
 		canTargetEnemyUnits = true,
-		canTargetFeatures = false,
+		canTargetFeatures = true,
 		color = { 0.5, 1.0, 0.4, 0.4 },
 	},
 	[CMD.LOAD_UNITS] = {
@@ -199,7 +200,7 @@ for cmdID, spec in pairs(commandSpecs) do
 			spec.color[1],
 			spec.color[2],
 			spec.color[3],
-			spec.color[4] * 100,
+			spec.color[4] * 2,
 		}
 		spec.color = map(spec.color, function(v)
 			return clamp(0, 1, v)
@@ -218,36 +219,6 @@ existing widget summary
 
 local myAllyTeamID = Spring.GetMyAllyTeamID()
 
-local function isValidInitialTarget(spec, targetType, targetID, targetAllyTeamID, targetResName)
-	if targetType == "unit" then
-		targetAllyTeamID = targetAllyTeamID or Spring.GetUnitAllyTeam(targetID)
-
-		if targetAllyTeamID == myAllyTeamID then
-			return spec.canTargetAllyUnits
-		else
-			return spec.canTargetEnemyUnits
-		end
-	elseif targetType == "feature" and spec.canTargetFeatures then
-		targetResName = targetResName or Spring.GetFeatureResurrect(targetID)
-		return targetResName ~= nil and #targetResName > 0
-	else
-		return false
-	end
-end
-
-local function getTargetFilterType(targetType, targetID)
-	if targetType == "unit" then
-		return Spring.GetUnitDefID(targetID)
-	elseif targetType == "feature" then
-		local resName = Spring.GetFeatureResurrect(targetID)
-		if string.len(resName) > 0 then
-			return resName
-		end
-	end
-
-	return nil
-end
-
 local function getTargetPosition(targetType, targetID)
 	if targetType == "unit" then
 		return Spring.GetUnitPosition(targetID)
@@ -260,37 +231,78 @@ local function getTargetRadius(targetType, targetID)
 	if targetType == "unit" then
 		return UnitDefs[Spring.GetUnitDefID(targetID)].radius
 	elseif targetType == "feature" then
-		return UnitDefs[Spring.GetUnitDefID(targetID)].radius
+		return FeatureDefs[Spring.GetFeatureDefID(targetID)].radius
 	end
 end
 
-local function findTargets(spec, targetType, targetID, cmdX, cmdZ, cmdRadius)
-	local targetAllyTeamID = targetType == "unit" and Spring.GetUnitAllyTeam(targetID) or nil
-	local targetResurrectName = targetType == "feature" and Spring.GetFeatureResurrect(targetID) or nil
-	local targetFilterType = getTargetFilterType(targetType, targetID)
-	local targetUnitDefID = Spring.GetUnitDefID(targetID)
+local function isValidInitialTarget(spec, targetType, targetID)
+	if targetType == "unit" and (spec.canTargetAllyUnits or spec.canTargetEnemyUnits) then
+		if Spring.GetUnitAllyTeam(targetID) == myAllyTeamID then
+			return spec.canTargetAllyUnits
+		else
+			return spec.canTargetEnemyUnits
+		end
+	elseif targetType == "feature" and spec.canTargetFeatures then
+		local targetResName = Spring.GetFeatureResurrect(targetID)
+		return targetResName ~= nil
+	end
 
+	return false
+end
+
+local function targetUnitMatches(spec, targetID, filterUnitDefID)
+	if not (spec.canTargetAllyUnits or spec.canTargetEnemyUnits) then
+		return false
+	end
+
+	if Spring.GetUnitDefID(targetID) ~= filterUnitDefID then
+		return false
+	end
+
+	local targetAllyTeamID = Spring.GetUnitAllyTeam(targetID)
+	if not spec.canTargetAllyUnits and targetAllyTeamID == myAllyTeamID then
+		return false
+	end
+
+	if not spec.canTargetEnemyUnits and targetAllyTeamID ~= myAllyTeamID then
+		return false
+	end
+
+	return true
+end
+
+local function targetFeatureMatches(spec, targetID, filterResurrectName)
+	if not spec.canTargetFeatures then
+		return false
+	end
+
+	if Spring.GetFeatureResurrect(targetID) ~= filterResurrectName then
+		return false
+	end
+
+	return true
+end
+
+local function findMatchingTargets(spec, targetType, targetID, cmdX, cmdZ, cmdRadius)
 	local targetIDs = {}
 
-	local areaFeatures = Spring.GetUnitsInCylinder(cmdX, cmdZ, cmdRadius)
-
-	local areaUnits = Spring.GetUnitsInCylinder(cmdX, cmdZ, cmdRadius)
-	for i = 1, #areaUnits do
-		local unitID = areaUnits[i]
-		local validTarget = true
-
-		if Spring.GetUnitDefID(unitID) ~= targetUnitDefID then
-			validTarget = false
-		elseif not spec.canTargetAllyUnits and Spring.GetUnitAllyTeam(unitID) == targetAllyTeamID then
-			validTarget = false
-		elseif not spec.canTargetEnemyUnits and targetFilterType ~= nil and Spring.GetUnitAllyTeam(unitID) ~= targetFilterType then
-			validTarget = false
-		elseif not spec.canTargetFeatures and targetFilterType ~= nil and Spring.GetFeatureResurrect(unitID) == targetFilterType then
-			validTarget = false
+	if targetType == "unit" and (spec.canTargetAllyUnits or spec.canTargetEnemyUnits) then
+		local filterUnitDefID = Spring.GetUnitDefID(targetID)
+		local areaUnits = Spring.GetUnitsInCylinder(cmdX, cmdZ, cmdRadius)
+		for i = 1, #areaUnits do
+			local unitID = areaUnits[i]
+			if targetUnitMatches(spec, unitID, filterUnitDefID) then
+				targetIDs[#targetIDs + 1] = unitID
+			end
 		end
-
-		if validTarget then
-			targetIDs[#targetIDs + 1] = unitID
+	elseif targetType == "feature" and spec.canTargetFeatures then
+		local filterResurrectName = Spring.GetFeatureResurrect(targetID)
+		local areaFeatures = Spring.GetFeaturesInCylinder(cmdX, cmdZ, cmdRadius)
+		for i = 1, #areaFeatures do
+			local featureID = areaFeatures[i]
+			if targetFeatureMatches(spec, featureID, filterResurrectName) then
+				targetIDs[#targetIDs + 1] = featureID
+			end
 		end
 	end
 
@@ -321,23 +333,24 @@ function widget:MousePress(x, y, button)
 
 	local cmdIndex, cmdID, cmdType, cmdName = Spring.GetActiveCommand()
 
-	Spring.Echo("[MousePress] " .. table.toString({
-		pos = { x, y },
-		button = button,
-		cmd = {
-			cmdIndex = cmdIndex,
-			cmdID = cmdID,
-			cmdType = cmdType,
-			cmdName = cmdName,
-		},
-	}))
-
 	-- check for alt when drawing because it can change between mouse press and release
 	if commandSpecs[cmdID] then
+		Spring.Echo("[MousePress] " .. table.toString({
+			pos = { x, y },
+			button = button,
+			cmd = {
+				cmdIndex = cmdIndex,
+				cmdID = cmdID,
+				cmdType = cmdType,
+				cmdName = cmdName,
+			},
+		}))
+
 		local targetType, targetID = Spring.TraceScreenRay(x, y)
 		local _, worldPosition = Spring.TraceScreenRay(x, y, true, true)
 
 		if not isValidInitialTarget(commandSpecs[cmdID], targetType, targetID, worldPosition[1], worldPosition[3]) then
+			Spring.Echo("[MousePress] invalid target")
 			activeCmdState = nil
 			return
 		end
@@ -347,9 +360,7 @@ function widget:MousePress(x, y, button)
 			cmdID = cmdID,
 			position = { x, y },
 			targetType = targetType,
-			targetId = targetID,
-			targetFilterType = getTargetFilterType(targetType, targetID),
-			targetAllyTeamID = targetType == "unit" and Spring.GetUnitAllyTeam(targetID) or nil,
+			targetID = targetID,
 			position = worldPosition,
 		}
 
@@ -391,10 +402,10 @@ function widget:DrawWorld()
 
 	local cmdRadius = distanceXZ(activeCmdState.position, worldPosition)
 
-	local targetIDs = findTargets(
+	local targetIDs = findMatchingTargets(
 		activeCmdState.spec,
 		activeCmdState.targetType,
-		activeCmdState.targetId,
+		activeCmdState.targetID,
 		activeCmdState.position[1],
 		activeCmdState.position[3],
 		cmdRadius
@@ -404,6 +415,8 @@ function widget:DrawWorld()
 		return
 	end
 
+	gl.DepthTest(GL.LEQUAL)
+
 	if activeCmdState.spec and activeCmdState.spec.color then
 		gl.Color(unpack(activeCmdState.spec.color))
 	else
@@ -412,8 +425,8 @@ function widget:DrawWorld()
 	for _, targetID in ipairs(targetIDs) do
 		local ux, uy, uz = getTargetPosition(activeCmdState.targetType, targetID)
 		local ur = getTargetRadius(activeCmdState.targetType, targetID)
-		gl.DrawGroundCircle(ux, 0, uz, UnitDefs[Spring.GetUnitDefID(targetID)].radius * 0.9, 32)
-		gl.DrawGroundCircle(ux, 0, uz, UnitDefs[Spring.GetUnitDefID(targetID)].radius * 1.0, 32)
+		gl.DrawGroundCircle(ux, 0, uz, ur * 0.9, 32)
+		gl.DrawGroundCircle(ux, 0, uz, ur * 1.0, 32)
 	end
 end
 
@@ -428,19 +441,11 @@ function widget:DrawScreenEffects()
 	gl.Text(string.format(
 		"%s | %s | %s | %s | %s",
 		activeCmdState.targetType or "<none>",
-		type(activeCmdState.targetId) == "number" and unitIDString(activeCmdState.targetId) or "<none>",
-		unitDefIDString(activeCmdState.targetFilterType) or "<none>",
-		activeCmdState.targetAllyTeamID or "<none>",
-		Spring.GetFeatureResurrect(activeCmdState.targetId) or "<none>"
+		unitIDString(activeCmdState.targetID) or "<none>",
+		unitDefIDString(Spring.GetUnitDefID(activeCmdState.targetID)) or "<none>",
+		Spring.GetUnitAllyTeam(activeCmdState.targetID) or "<none>",
+		Spring.GetFeatureResurrect(activeCmdState.targetID) or "<none>"
 	), mx + 15, my - 12, 40, "ao")
-end
-
-local function createCommand(cmdID, cmdOpts, targetID, cmdIndex)
-	local newCmdOpts = {}
-	if #cmdIndex >= 1 or cmdOpts.shift then
-		newCmdOpts = { "shift" }
-	end
-	return { cmdID, { targetID }, newCmdOpts }
 end
 
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
@@ -452,6 +457,7 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 
 	activeCmdState = nil
 	if not commandSpecs[cmdID] or #cmdParams ~= 4 or not cmdOpts.alt then
+		Spring.Echo("[CommandNotify] invalid command")
 		return
 	end
 
@@ -465,13 +471,16 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	local targetType, targetID = Spring.TraceScreenRay(mouseX, mouseY)
 
 	if not isValidInitialTarget(spec, targetType, targetID, cmdX, cmdZ) then
+		Spring.Echo("[CommandNotify] invalid target")
 		activeCmdState = nil
 		return
 	end
 
+	Spring.Echo("[CommandNotify] found valid target")
+
 	local cmdRadius = cmdParams[4]
 
-	local targetIDs = findTargets(
+	local targetIDs = findMatchingTargets(
 		spec, targetType, targetID, cmdX, cmdZ, cmdRadius
 	)
 
@@ -479,6 +488,9 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 		local newCmdOpts = {}
 		if index > 1 or cmdOpts.shift then
 			newCmdOpts = { "shift" }
+		end
+		if targetType == "feature" then
+			tID = tID + Game.maxUnits
 		end
 		return { cmdID, { tID }, newCmdOpts }
 	end)
@@ -491,4 +503,14 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	end
 end
 
-
+--function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
+--  Spring.Echo("[UnitCommand] " .. table.toString({
+--    unitID = unitIDString(unitID),
+--    unitDefID = unitDefIDString(unitDefID),
+--    unitTeam = unitTeam,
+--    cmdID = cmdIDString(cmdID),
+--    cmdParams = cmdParams,
+--    cmdOpts = cmdOpts,
+--    cmdTag = cmdTag,
+--  }))
+--end
