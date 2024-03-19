@@ -210,13 +210,14 @@ local function distributeTargets(sourceIDs, targetIDs)
 
 	local result = {}
 
-	for i = 0, sourceCount * targetCount do
-		result[#result + 1] = {
-			sourceID = sourceIDs[(i % sourceCount) + 1],
-			targetID = targetIDs[(i % targetCount) + 1],
-			sourceIndex = math.floor(i / sourceCount) + 1,
-			targetIndex = math.floor(i / targetCount) + 1
-		}
+	for s = 1, sourceCount do
+		for t = 1, targetCount do
+			result[#result + 1] = {
+				sourceID = sourceIDs[s],
+				targetID = targetIDs[(s + t - 2) % targetCount + 1],
+				sourceIndex = s,
+			}
+		end
 	end
 
 	return result
@@ -509,7 +510,7 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 					tID = tID + Game.maxUnits
 				end
 
-				cmdArray[#unitArray+1] = { cmdID, { tID }, newCmdOpts }
+				cmdArray[#cmdArray+1] = { cmdID, { tID }, newCmdOpts }
 
 				Spring.Echo("order", targetAssignment.sourceID, targetAssignment.targetID)
 			end
@@ -540,14 +541,14 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	end
 end
 
-function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
-  Spring.Echo("[UnitCommand] " .. table.toString({
-    unitID = unitIDString(unitID),
-    unitDefID = unitDefIDString(unitDefID),
-    unitTeam = unitTeam,
-    cmdID = cmdIDString(cmdID),
-    cmdParams = cmdParams,
-    cmdOpts = cmdOpts,
-    cmdTag = cmdTag,
-  }))
-end
+--function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
+--  Spring.Echo("[UnitCommand] " .. table.toString({
+--    unitID = unitIDString(unitID),
+--    unitDefID = unitDefIDString(unitDefID),
+--    unitTeam = unitTeam,
+--    cmdID = cmdIDString(cmdID),
+--    cmdParams = cmdParams,
+--    cmdOpts = cmdOpts,
+--    cmdTag = cmdTag,
+--  }))
+--end
