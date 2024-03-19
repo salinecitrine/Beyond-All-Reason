@@ -58,24 +58,6 @@ local function unitDefIDString(unitDefID)
 	end
 end
 
-local function distributeTargets(callback, sourceIDs, targetIDs)
-	local sourceCount = #sourceIDs
-	local targetCount = #targetIDs
-
-	for i = 0, math.max(sourceCount, targetCount) do
-		callback(
-			sourceIDs[(i % sourceCount) + 1],
-			targetIDs[(i % targetCount) + 1],
-			math.floor(i / sourceCount) + 1,
-			math.floor(i / targetCount) + 1
-		)
-	end
-end
-
-local function distanceXZ(a, b)
-	return math.diag(a[1] - b[1], 0, a[3] - b[3])
-end
-
 local function map(tbl, callback)
 	local result = {}
 	for i = 1, #tbl do
@@ -154,6 +136,7 @@ local commandSpecs = {
 		canTargetAllyUnits = true,
 		canTargetEnemyUnits = true,
 		canTargetFeatures = false,
+		distributeTargets = true,
 		color = { 0.4, 0.9, 0.9, 0.3 },
 	},
 	[CMD.REPAIR] = {
@@ -218,6 +201,30 @@ existing widget summary
 ]]--
 
 local myAllyTeamID = Spring.GetMyAllyTeamID()
+
+---@param sourceIDs number[]
+---@param targetIDs number[]
+local function distributeTargets(sourceIDs, targetIDs)
+	local sourceCount = #sourceIDs
+	local targetCount = #targetIDs
+
+	local result = {}
+
+	for i = 0, sourceCount * targetCount do
+		result[#result + 1] = {
+			sourceID = sourceIDs[(i % sourceCount) + 1],
+			targetID = targetIDs[(i % targetCount) + 1],
+			sourceIndex = math.floor(i / sourceCount) + 1,
+			targetIndex = math.floor(i / targetCount) + 1
+		}
+	end
+
+	return result
+end
+
+local function distanceXZ(a, b)
+	return math.diag(a[1] - b[1], 0, a[3] - b[3])
+end
 
 local function getTargetPosition(targetType, targetID)
 	if targetType == "unit" then
@@ -484,33 +491,63 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 		spec, targetType, targetID, cmdX, cmdZ, cmdRadius
 	)
 
-	local cmdArray = map(targetIDs, function(tID, index)
-		local newCmdOpts = {}
-		if index > 1 or cmdOpts.shift then
-			newCmdOpts = { "shift" }
-		end
-		if targetType == "feature" then
-			tID = tID + Game.maxUnits
-		end
-		return { cmdID, { tID }, newCmdOpts }
-	end)
+	if #targetIDs > 0 then
+		local selectedUnitIDs = Spring.GetSelectedUnits()
+		if spec.distributeTargets then
+			local unitArray = {}
+			local cmdArray = {}
+			for _, targetAssignment in ipairs(distributeTargets(selectedUnitIDs, targetIDs)) do
+				unitArray[#unitArray+1] = targetAssignment.sourceID
 
-	if #cmdArray > 0 then
-		local selectedUnits = Spring.GetSelectedUnits()
-		Spring.Echo(string.format("[CommandNotify] giving %d commands to %d units", #cmdArray, #selectedUnits))
-		Spring.GiveOrderArrayToUnitArray(selectedUnits, cmdArray)
+				local newCmdOpts = {}
+				if targetAssignment.sourceIndex > 1 or cmdOpts.shift then
+					newCmdOpts = { "shift" }
+				end
+
+				local tID = targetAssignment.targetID
+				if targetType == "feature" then
+					tID = tID + Game.maxUnits
+				end
+
+				cmdArray[#unitArray+1] = { cmdID, { tID }, newCmdOpts }
+
+				Spring.Echo("order", targetAssignment.sourceID, targetAssignment.targetID)
+			end
+
+			Spring.Echo(string.format(
+				"[CommandNotify] giving %d commands to %d units", #cmdArray, #selectedUnitIDs
+			))
+			Spring.GiveOrderArrayToUnitArray(unitArray, cmdArray, true)
+		else
+			local cmdArray = map(targetIDs, function(tID, index)
+				local newCmdOpts = {}
+				if index > 1 or cmdOpts.shift then
+					newCmdOpts = { "shift" }
+				end
+				if targetType == "feature" then
+					tID = tID + Game.maxUnits
+				end
+				return { cmdID, { tID }, newCmdOpts }
+			end)
+
+			Spring.Echo(string.format(
+				"[CommandNotify] giving %d commands to %d units", #cmdArray, #selectedUnitIDs
+			))
+			Spring.GiveOrderArrayToUnitArray(selectedUnitIDs, cmdArray)
+		end
+
 		return true
 	end
 end
 
---function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
---  Spring.Echo("[UnitCommand] " .. table.toString({
---    unitID = unitIDString(unitID),
---    unitDefID = unitDefIDString(unitDefID),
---    unitTeam = unitTeam,
---    cmdID = cmdIDString(cmdID),
---    cmdParams = cmdParams,
---    cmdOpts = cmdOpts,
---    cmdTag = cmdTag,
---  }))
---end
+function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
+  Spring.Echo("[UnitCommand] " .. table.toString({
+    unitID = unitIDString(unitID),
+    unitDefID = unitDefIDString(unitDefID),
+    unitTeam = unitTeam,
+    cmdID = cmdIDString(cmdID),
+    cmdParams = cmdParams,
+    cmdOpts = cmdOpts,
+    cmdTag = cmdTag,
+  }))
+end
