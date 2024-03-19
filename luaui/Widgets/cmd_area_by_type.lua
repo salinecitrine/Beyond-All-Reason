@@ -210,14 +210,19 @@ local function distributeTargets(sourceIDs, targetIDs)
 
 	local result = {}
 
-	for s = 1, sourceCount do
-		for t = 1, targetCount do
-			result[#result + 1] = {
-				sourceID = sourceIDs[s],
-				targetID = targetIDs[(s + t - 2) % targetCount + 1],
-				sourceIndex = s,
-			}
-		end
+	for i = 0, sourceCount * targetCount - 1 do
+		local sourceIndex = (i % sourceCount) + 1
+		local sourceSelectCount = math.floor(i / sourceCount) + 1
+
+		local targetIndex = (i % targetCount) + 1
+		local targetSelectCount = math.floor(i / targetCount) + 1
+
+		result[#result + 1] = {
+			sourceID = sourceIDs[sourceIndex],
+			targetID = targetIDs[targetIndex],
+			sourceIndex = sourceSelectCount,
+			targetIndex = targetSelectCount,
+		}
 	end
 
 	return result
@@ -455,7 +460,7 @@ function widget:DrawScreenEffects()
 		Spring.GetFeatureResurrect(activeCmdState.targetID) or "<none>"
 	), mx + 15, my - 12, 40, "ao")
 end
-
+local MAX_TARGETS_PER_SOURCE = 5
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	Spring.Echo("[CommandNotify] " .. table.toString({
 		cmdID = cmdIDString(cmdID),
@@ -494,25 +499,31 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 
 	if #targetIDs > 0 then
 		local selectedUnitIDs = Spring.GetSelectedUnits()
+		local targetsPerSource = {}
 		if spec.distributeTargets then
 			local unitArray = {}
 			local cmdArray = {}
 			for _, targetAssignment in ipairs(distributeTargets(selectedUnitIDs, targetIDs)) do
-				unitArray[#unitArray+1] = targetAssignment.sourceID
+				local sID = targetAssignment.sourceID
+				if targetsPerSource[sID] == nil or targetsPerSource[sID] < MAX_TARGETS_PER_SOURCE then
+					unitArray[#unitArray + 1] = sID
 
-				local newCmdOpts = {}
-				if targetAssignment.sourceIndex > 1 or cmdOpts.shift then
-					newCmdOpts = { "shift" }
+					local newCmdOpts = {}
+					if targetAssignment.sourceIndex > 1 or cmdOpts.shift then
+						newCmdOpts = { "shift" }
+					end
+
+					local tID = targetAssignment.targetID
+					if targetType == "feature" then
+						tID = tID + Game.maxUnits
+					end
+
+					cmdArray[#cmdArray + 1] = { cmdID, { tID }, newCmdOpts }
+
+					targetsPerSource[sID] = (targetsPerSource[sID] or 0) + 1
+
+					Spring.Echo("order", targetAssignment.sourceID, targetAssignment.targetID)
 				end
-
-				local tID = targetAssignment.targetID
-				if targetType == "feature" then
-					tID = tID + Game.maxUnits
-				end
-
-				cmdArray[#cmdArray+1] = { cmdID, { tID }, newCmdOpts }
-
-				Spring.Echo("order", targetAssignment.sourceID, targetAssignment.targetID)
 			end
 
 			Spring.Echo(string.format(
