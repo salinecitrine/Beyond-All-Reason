@@ -8,57 +8,7 @@ function widget:GetInfo()
 	}
 end
 
-local MAX_TARGETS_PER_SOURCE = 12
-
-local function enum(...)
-	local args = { ... }
-	local result = {}
-	for _, v in ipairs(args) do
-		result[v] = v
-	end
-	return result
-end
-
-local function cmdIDString(cmdID)
-	if cmdID < 0 then
-		return "{Build " .. UnitDefs[-cmdID].translatedHumanName .. "} (" .. cmdID .. ")"
-	else
-		if CMD[cmdID] ~= nil then
-			return CMD[cmdID] .. " (" .. cmdID .. ")"
-		else
-			return "unknown command (" .. cmdID .. ")"
-		end
-	end
-end
-
-local function unitIDString(unitID)
-	if not unitID then
-		return nil
-	end
-	local unitDefID = Spring.GetUnitDefID(unitID)
-	if UnitDefs[unitDefID] == nil then
-		return unitID .. " (" .. (unitDefID or "nil") .. ")"
-	end
-
-	local unitName = UnitDefs[unitDefID].translatedHumanName
-	if unitName ~= nil then
-		return unitID .. " (" .. unitName .. ")"
-	end
-end
-
-local function unitDefIDString(unitDefID)
-	if not unitDefID then
-		return nil
-	end
-	if UnitDefs[unitDefID] == nil then
-		return "invalid (" .. (unitDefID or "nil") .. ")"
-	end
-
-	local unitName = UnitDefs[unitDefID].translatedHumanName
-	if unitName ~= nil then
-		return unitName .. " (" .. unitDefID .. ")"
-	end
-end
+local MAX_TARGETS_PER_SOURCE = 30
 
 local function map(tbl, callback)
 	local result = {}
@@ -66,6 +16,20 @@ local function map(tbl, callback)
 		result[i] = callback(tbl[i], i, tbl)
 	end
 	return result
+end
+
+local function reduce(tbl, callback, initial)
+	local accumulator = initial
+
+	for i = 1, #tbl do
+		if i == 1 and accumulator == nil then
+			accumulator = tbl[i]
+		else
+			accumulator = callback(accumulator, tbl[i], i, tbl)
+		end
+	end
+
+	return accumulator
 end
 
 local function clamp(min, max, num)
@@ -79,14 +43,23 @@ end
 
 local CMD_SET_TARGET = 34923
 
--- combine with smart area reclaim?
+--todo: combine with smart area reclaim?
+--todo: combine with gui_transport_weight_limit.lua? (checks loading ability and draws circles)
 
---local TEST_RESULT = enum(
---	"PASS",
---	"FAIL",
---	"SKIP",
---	"ERROR"
---)
+--[[
+how to handle transports
+
+### issues
+* each transport has a different set of units it can pick up, which changes as it picks up units
+* we can't check transportability from just a targetID - we need the transport that would pick it up
+
+### questions
+* how can we show what units can be picked up, for a list of transports?
+  * presumably, we highlight any unit that can be the first pickup for at least one transport. So we find the emptiest
+    transport of each type in our list, and see if any of those can transport the unit.
+* how can we order LOAD_UNITS commands such that we optimize for speed and completeness of pickups?
+  * bin packing?
+]]--
 
 --[[
 possible options or concerns:
@@ -109,6 +82,41 @@ source-target matching categories:
 	* each source gets all targets, but order doesn't matter as much
 	* ideally sorted by distance to average source
 ]]--
+
+local function canTransportUnit(transportUnitID, targetUnitID)
+	local transportUnitDef = UnitDefs[Spring.GetUnitDefID(transportUnitID)]
+	local targetUnitDef = UnitDefs[Spring.GetUnitDefID(targetUnitID)]
+
+	-- check if target is able to be transported by anything
+	if targetUnitDef.cantBeTransported then
+		return false
+	end
+
+	-- check size of target unit
+	if targetUnitDef.xsize > transportUnitDef.transportSize * 2 then
+		return false
+	end
+
+	local unitsInTransport = Spring.GetUnitIsTransporting(transportUnitID)
+
+	--check capacity (number of transported units)
+	if #unitsInTransport >= transportUnitDef.transportCapacity then
+		return false
+	end
+
+	-- check mass (total mass of transported units)
+	local totalMass = reduce(
+		unitsInTransport,
+		function(acc, cur)
+			return acc + UnitDefs[Spring.GetUnitDefID(cur)].mass
+		end
+	)
+	if totalMass + targetUnitDef.mass > transportUnitDef.transportMass then
+		return false
+	end
+
+	return true
+end
 
 local function assignTargetsSame(sourceIDs, targetIDs, targetType, cmdID, cmdOpts)
 	local cmdArray = map(targetIDs, function(tID, index)
@@ -174,6 +182,8 @@ local commandSpecs = {
 		canTargetAllyUnits = false,
 		canTargetEnemyUnits = true,
 		canTargetFeatures = false,
+		--todo: canTargetResurrectFeatures
+		--todo: canTargetResourceFeatures
 		assignTargets = assignTargetsSame,
 		--color = { 1.0, 0.75, 1.0, 0.25 },
 		color = { 1, 0.75, 0, 0.3 },
@@ -197,7 +207,7 @@ local commandSpecs = {
 		canTargetAllyUnits = true,
 		canTargetEnemyUnits = true,
 		canTargetFeatures = false,
-		distributeTargets = true,
+		filters = {canTransportUnit},
 		assignTargets = assignTargetsDistributed,
 		color = { 0.4, 0.9, 0.9, 0.3 },
 	},
@@ -422,7 +432,7 @@ function widget:Update()
 	end
 end
 
-function widget:DrawWorld()
+function widget:DrawWorldPreUnit()
 	if activeCmdState == nil then
 		return
 	end
@@ -470,33 +480,33 @@ function widget:DrawWorld()
 	end
 end
 
-function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
-	activeCmdState = nil
-	if not commandSpecs[cmdID] or #cmdParams ~= 4 or not cmdOpts.alt then
-		return
-	end
-
-	local spec = commandSpecs[cmdID]
-
-	local cmdX, cmdY, cmdZ = cmdParams[1], cmdParams[2], cmdParams[3]
-
-	local mouseX, mouseY = Spring.WorldToScreenCoords(cmdX, cmdY, cmdZ)
-	local targetType, targetID = Spring.TraceScreenRay(mouseX, mouseY)
-
-	if not isValidInitialTarget(spec, targetType, targetID, cmdX, cmdZ) then
-		activeCmdState = nil
-		return
-	end
-
-	local cmdRadius = cmdParams[4]
-
-	local targetIDs = findMatchingTargets(
-		spec, targetType, targetID, cmdX, cmdZ, cmdRadius
-	)
-
-	if #targetIDs > 0 then
-		spec.assignTargets(Spring.GetSelectedUnits(), targetIDs, targetType, cmdID, cmdOpts)
-
-		return true
-	end
-end
+--function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
+--	activeCmdState = nil
+--	if not commandSpecs[cmdID] or #cmdParams ~= 4 or not cmdOpts.alt then
+--		return
+--	end
+--
+--	local spec = commandSpecs[cmdID]
+--
+--	local cmdX, cmdY, cmdZ = cmdParams[1], cmdParams[2], cmdParams[3]
+--
+--	local mouseX, mouseY = Spring.WorldToScreenCoords(cmdX, cmdY, cmdZ)
+--	local targetType, targetID = Spring.TraceScreenRay(mouseX, mouseY)
+--
+--	if not isValidInitialTarget(spec, targetType, targetID, cmdX, cmdZ) then
+--		activeCmdState = nil
+--		return
+--	end
+--
+--	local cmdRadius = cmdParams[4]
+--
+--	local targetIDs = findMatchingTargets(
+--		spec, targetType, targetID, cmdX, cmdZ, cmdRadius
+--	)
+--
+--	if #targetIDs > 0 then
+--		spec.assignTargets(Spring.GetSelectedUnits(), targetIDs, targetType, cmdID, cmdOpts)
+--
+--		return true
+--	end
+--end
