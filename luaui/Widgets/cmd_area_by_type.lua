@@ -109,6 +109,63 @@ source-target matching categories:
 	* each source gets all targets, but order doesn't matter as much
 	* ideally sorted by distance to average source
 ]]--
+
+local function assignTargetsSame(sourceIDs, targetIDs, targetType, cmdID, cmdOpts)
+	local cmdArray = map(targetIDs, function(tID, index)
+		local newCmdOpts = {}
+		if index > 1 or cmdOpts.shift then
+			newCmdOpts = { "shift" }
+		end
+
+		if targetType == "feature" then
+			tID = tID + Game.maxUnits
+		end
+
+		return { cmdID, { tID }, newCmdOpts }
+	end)
+
+	Spring.GiveOrderArrayToUnitArray(sourceIDs, cmdArray)
+end
+
+local function assignTargetsDistributed(sourceIDs, targetIDs, targetType, cmdID, cmdOpts)
+	-- loop through targets, find next source and assign it. continue until no sources left (?)
+	local unitCmdArrays = {}
+	local modified = true
+	local sIndex = 1
+	while modified do
+		modified = false
+		for tIndex = 1, #targetIDs do
+			local sID = sourceIDs[sIndex]
+			local tID = targetIDs[tIndex]
+			local previousCmdCount = #(unitCmdArrays[sID] or {})
+
+			if previousCmdCount <= MAX_TARGETS_PER_SOURCE then
+				local newCmdOpts = {}
+				if previousCmdCount > 0 or cmdOpts.shift then
+					newCmdOpts = { "shift" }
+				end
+
+				if targetType == "feature" then
+					tID = tID + Game.maxUnits
+				end
+
+				if unitCmdArrays[sID] == nil then
+					unitCmdArrays[sID] = {}
+				end
+				table.insert(unitCmdArrays[sID], { cmdID, { tID }, newCmdOpts })
+
+				modified = true
+			end
+
+			sIndex = sIndex % #sourceIDs + 1
+		end
+	end
+
+	for unitID, cmdArray in pairs(unitCmdArrays) do
+		Spring.GiveOrderArrayToUnit(unitID, cmdArray)
+	end
+end
+
 local commandSpecs = {
 	[CMD_SET_TARGET] = {
 		-- A: target enemy units that share unitdefid
@@ -117,6 +174,7 @@ local commandSpecs = {
 		canTargetAllyUnits = false,
 		canTargetEnemyUnits = true,
 		canTargetFeatures = false,
+		assignTargets = assignTargetsSame,
 		--color = { 1.0, 0.75, 1.0, 0.25 },
 		color = { 1, 0.75, 0, 0.3 },
 	},
@@ -129,6 +187,7 @@ local commandSpecs = {
 		canTargetAllyUnits = true,
 		canTargetEnemyUnits = true,
 		canTargetFeatures = true,
+		assignTargets = assignTargetsSame,
 		color = { 0.5, 1.0, 0.4, 0.4 },
 	},
 	[CMD.LOAD_UNITS] = {
@@ -139,6 +198,7 @@ local commandSpecs = {
 		canTargetEnemyUnits = true,
 		canTargetFeatures = false,
 		distributeTargets = true,
+		assignTargets = assignTargetsDistributed,
 		color = { 0.4, 0.9, 0.9, 0.3 },
 	},
 	[CMD.REPAIR] = {
@@ -148,6 +208,7 @@ local commandSpecs = {
 		canTargetAllyUnits = true,
 		canTargetEnemyUnits = false,
 		canTargetFeatures = false,
+		assignTargets = assignTargetsSame,
 		color = { 1.0, 0.9, 0.2, 0.4 },
 	},
 	[CMD.RESURRECT] = {
@@ -157,6 +218,7 @@ local commandSpecs = {
 		canTargetAllyUnits = false,
 		canTargetEnemyUnits = false,
 		canTargetFeatures = true,
+		assignTargets = assignTargetsSame,
 		color = { 0.9, 0.5, 1.0, 0.25 },
 	},
 	[CMD.CAPTURE] = {
@@ -166,6 +228,7 @@ local commandSpecs = {
 		canTargetAllyUnits = false,
 		canTargetEnemyUnits = true,
 		canTargetFeatures = false,
+		assignTargets = assignTargetsSame,
 		color = { 1.0, 1.0, 0.3, 0.3 },
 	},
 	[CMD.ATTACK] = {
@@ -175,6 +238,7 @@ local commandSpecs = {
 		canTargetAllyUnits = false,
 		canTargetEnemyUnits = true,
 		canTargetFeatures = false,
+		assignTargets = assignTargetsSame,
 		color = { 1.0, 0.2, 0.2, 0.3 },
 	},
 }
@@ -203,32 +267,6 @@ existing widget summary
 ]]--
 
 local myAllyTeamID = Spring.GetMyAllyTeamID()
-
----@param sourceIDs number[]
----@param targetIDs number[]
-local function distributeTargets(sourceIDs, targetIDs)
-	local sourceCount = #sourceIDs
-	local targetCount = #targetIDs
-
-	local result = {}
-
-	for i = 0, sourceCount * targetCount - 1 do
-		local sourceIndex = (i % sourceCount) + 1
-		local sourceSelectCount = math.floor(i / sourceCount) + 1
-
-		local targetIndex = (i % targetCount) + 1
-		local targetSelectCount = math.floor(i / targetCount) + 1
-
-		result[#result + 1] = {
-			sourceID = sourceIDs[sourceIndex],
-			targetID = targetIDs[targetIndex],
-			sourceIndex = sourceSelectCount,
-			targetIndex = targetSelectCount,
-		}
-	end
-
-	return result
-end
 
 local function distanceXZ(a, b)
 	return math.diag(a[1] - b[1], 0, a[3] - b[3])
@@ -432,24 +470,6 @@ function widget:DrawWorld()
 	end
 end
 
-function widget:DrawScreenEffects()
-	if activeCmdState == nil then
-		return
-	end
-
-	local mx, my = Spring.GetMouseState()
-
-	gl.Color(1.0, 1.0, 1.0, 1.0)
-	gl.Text(string.format(
-		"%s | %s | %s | %s | %s",
-		activeCmdState.targetType or "<none>",
-		unitIDString(activeCmdState.targetID) or "<none>",
-		unitDefIDString(Spring.GetUnitDefID(activeCmdState.targetID)) or "<none>",
-		Spring.GetUnitAllyTeam(activeCmdState.targetID) or "<none>",
-		Spring.GetFeatureResurrect(activeCmdState.targetID) or "<none>"
-	), mx + 15, my - 12, 40, "ao")
-end
-
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	activeCmdState = nil
 	if not commandSpecs[cmdID] or #cmdParams ~= 4 or not cmdOpts.alt then
@@ -474,61 +494,8 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 		spec, targetType, targetID, cmdX, cmdZ, cmdRadius
 	)
 
-	-- loop through targets, find next source and assign it. continue until no sources left
-
 	if #targetIDs > 0 then
-		local selectedUnitIDs = Spring.GetSelectedUnits()
-		if spec.distributeTargets then
-			local unitCmdArrays = {}
-			local modified = true
-			local sIndex = 1
-			while modified do
-				modified = false
-				for tIndex = 1, #targetIDs do
-					local sID = selectedUnitIDs[sIndex]
-					local tID = targetIDs[tIndex]
-					local previousCmdCount = #(unitCmdArrays[sID] or {})
-
-					if previousCmdCount <= MAX_TARGETS_PER_SOURCE then
-						local newCmdOpts = {}
-						if previousCmdCount > 0 or cmdOpts.shift then
-							newCmdOpts = { "shift" }
-						end
-
-						if targetType == "feature" then
-							tID = tID + Game.maxUnits
-						end
-
-						if unitCmdArrays[sID] == nil then
-							unitCmdArrays[sID] = {}
-						end
-						table.insert(unitCmdArrays[sID], { cmdID, { tID }, newCmdOpts })
-
-						modified = true
-					end
-
-					sIndex = sIndex % #selectedUnitIDs + 1
-				end
-			end
-
-			for unitID, cmdArray in pairs(unitCmdArrays) do
-				Spring.GiveOrderArrayToUnit(unitID, cmdArray)
-			end
-		else
-			local cmdArray = map(targetIDs, function(tID, index)
-				local newCmdOpts = {}
-				if index > 1 or cmdOpts.shift then
-					newCmdOpts = { "shift" }
-				end
-				if targetType == "feature" then
-					tID = tID + Game.maxUnits
-				end
-
-				return { cmdID, { tID }, newCmdOpts }
-			end)
-
-			Spring.GiveOrderArrayToUnitArray(selectedUnitIDs, cmdArray)
-		end
+		spec.assignTargets(Spring.GetSelectedUnits(), targetIDs, targetType, cmdID, cmdOpts)
 
 		return true
 	end
