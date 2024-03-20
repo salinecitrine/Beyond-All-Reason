@@ -8,6 +8,8 @@ function widget:GetInfo()
 	}
 end
 
+local MAX_TARGETS_PER_SOURCE = 12
+
 local function enum(...)
 	local args = { ... }
 	local result = {}
@@ -348,22 +350,11 @@ function widget:MousePress(x, y, button)
 
 	-- check for alt when drawing because it can change between mouse press and release
 	if commandSpecs[cmdID] then
-		Spring.Echo("[MousePress] " .. table.toString({
-			pos = { x, y },
-			button = button,
-			cmd = {
-				cmdIndex = cmdIndex,
-				cmdID = cmdID,
-				cmdType = cmdType,
-				cmdName = cmdName,
-			},
-		}))
 
 		local targetType, targetID = Spring.TraceScreenRay(x, y)
 		local _, worldPosition = Spring.TraceScreenRay(x, y, true, true)
 
 		if not isValidInitialTarget(commandSpecs[cmdID], targetType, targetID, worldPosition[1], worldPosition[3]) then
-			Spring.Echo("[MousePress] invalid target")
 			activeCmdState = nil
 			return
 		end
@@ -376,8 +367,6 @@ function widget:MousePress(x, y, button)
 			targetID = targetID,
 			position = worldPosition,
 		}
-
-		Spring.Echo("[MousePress.activeCmdState] " .. table.toString(activeCmdState))
 	else
 		activeCmdState = nil
 	end
@@ -461,21 +450,11 @@ function widget:DrawScreenEffects()
 	), mx + 15, my - 12, 40, "ao")
 end
 
-local MAX_TARGETS_PER_SOURCE = 8
 function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
-	Spring.Echo("[CommandNotify] " .. table.toString({
-		cmdID = cmdIDString(cmdID),
-		cmdParams = cmdParams,
-		cmdOpts = cmdOpts,
-	}))
-
 	activeCmdState = nil
 	if not commandSpecs[cmdID] or #cmdParams ~= 4 or not cmdOpts.alt then
-		Spring.Echo("[CommandNotify] invalid command")
 		return
 	end
-
-	Spring.Echo("[CommandNotify] found valid command")
 
 	local spec = commandSpecs[cmdID]
 
@@ -485,12 +464,9 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 	local targetType, targetID = Spring.TraceScreenRay(mouseX, mouseY)
 
 	if not isValidInitialTarget(spec, targetType, targetID, cmdX, cmdZ) then
-		Spring.Echo("[CommandNotify] invalid target")
 		activeCmdState = nil
 		return
 	end
-
-	Spring.Echo("[CommandNotify] found valid target")
 
 	local cmdRadius = cmdParams[4]
 
@@ -519,8 +495,6 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 						tID = tID + Game.maxUnits
 					end
 
-					Spring.Echo("order", sID, tID)
-
 					sourceTargets[sID][tID] = true
 					if unitCmdArrays[sID] == nil then
 						unitCmdArrays[sID] = {}
@@ -530,9 +504,6 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 			end
 
 			for unitID, cmdArray in pairs(unitCmdArrays) do
-				Spring.Echo(string.format(
-					"[CommandNotify] giving %d commands to %d units", #cmdArray, 1
-				))
 				Spring.GiveOrderArrayToUnit(unitID, cmdArray)
 			end
 		else
@@ -545,29 +516,12 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 					tID = tID + Game.maxUnits
 				end
 
-				Spring.Echo("order", tID)
-
 				return { cmdID, { tID }, newCmdOpts }
 			end)
 
-			Spring.Echo(string.format(
-				"[CommandNotify] giving %d commands to %d units", #cmdArray, #selectedUnitIDs
-			))
 			Spring.GiveOrderArrayToUnitArray(selectedUnitIDs, cmdArray)
 		end
 
 		return true
 	end
 end
-
---function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
---  Spring.Echo("[UnitCommand] " .. table.toString({
---    unitID = unitIDString(unitID),
---    unitDefID = unitDefIDString(unitDefID),
---    unitTeam = unitTeam,
---    cmdID = cmdIDString(cmdID),
---    cmdParams = cmdParams,
---    cmdOpts = cmdOpts,
---    cmdTag = cmdTag,
---  }))
---end
