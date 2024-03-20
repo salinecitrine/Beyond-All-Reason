@@ -474,32 +474,40 @@ function widget:CommandNotify(cmdID, cmdParams, cmdOpts)
 		spec, targetType, targetID, cmdX, cmdZ, cmdRadius
 	)
 
+	-- loop through targets, find next source and assign it. continue until no sources left
+
 	if #targetIDs > 0 then
 		local selectedUnitIDs = Spring.GetSelectedUnits()
-		local sourceTargets = {}
 		if spec.distributeTargets then
 			local unitCmdArrays = {}
-			for _, assignment in ipairs(distributeTargets(selectedUnitIDs, targetIDs)) do
-				local sID = assignment.sourceID
-				local tID = assignment.targetID
-				if sourceTargets[sID] == nil then
-					sourceTargets[sID] = {}
-				end
-				if not sourceTargets[sID][tID] and assignment.sourceIndex <= MAX_TARGETS_PER_SOURCE then
-					local newCmdOpts = {}
-					if assignment.sourceIndex > 1 or cmdOpts.shift then
-						newCmdOpts = { "shift" }
+			local modified = true
+			local sIndex = 1
+			while modified do
+				modified = false
+				for tIndex = 1, #targetIDs do
+					local sID = selectedUnitIDs[sIndex]
+					local tID = targetIDs[tIndex]
+					local previousCmdCount = #(unitCmdArrays[sID] or {})
+
+					if previousCmdCount <= MAX_TARGETS_PER_SOURCE then
+						local newCmdOpts = {}
+						if previousCmdCount > 0 or cmdOpts.shift then
+							newCmdOpts = { "shift" }
+						end
+
+						if targetType == "feature" then
+							tID = tID + Game.maxUnits
+						end
+
+						if unitCmdArrays[sID] == nil then
+							unitCmdArrays[sID] = {}
+						end
+						table.insert(unitCmdArrays[sID], { cmdID, { tID }, newCmdOpts })
+
+						modified = true
 					end
 
-					if targetType == "feature" then
-						tID = tID + Game.maxUnits
-					end
-
-					sourceTargets[sID][tID] = true
-					if unitCmdArrays[sID] == nil then
-						unitCmdArrays[sID] = {}
-					end
-					table.insert(unitCmdArrays[sID], { cmdID, { tID }, newCmdOpts })
+					sIndex = sIndex % #selectedUnitIDs + 1
 				end
 			end
 
