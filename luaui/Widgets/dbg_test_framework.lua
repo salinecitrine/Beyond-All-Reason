@@ -27,6 +27,8 @@ local gameStartTestPatterns = nil
 local testResultsFilePath = nil
 local testReporter = nil
 
+-- diff
+
 -- utils
 -- =====
 local function log(level, str, ...)
